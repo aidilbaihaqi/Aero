@@ -5,9 +5,19 @@
 __pycache__/
 *.pyc
 
+# Environment
+.env
+
 # Response & result JSON files (generated output)
 response*.json
 result*.json
+raw_scrape.json
+
+# Excel exports
+*.xlsx
+exports/
 
 # Test files
 test_*.py
+
+# Old flat files (sebelum FastAPI restructure)
