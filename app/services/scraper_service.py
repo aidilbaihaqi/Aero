@@ -221,67 +221,80 @@ def scrape_and_save(
         "bookcabin_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
     }
 
-    # 2. Scrape per tanggal
-    for date_str in dates:
-        # Garuda
+    # 2. Scrape per tanggal (3 airlines in PARALLEL per date)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _scrape_garuda_safe(date_str):
         try:
             flights = scrape_garuda(origin, destination, date_str)
-            for f in flights:
-                all_records.append(_normalize_garuda(f, run_id, route))
-            stats["garuda_api"]["total_flights"] += len(flights)
-            if flights:
-                stats["garuda_api"]["total_dates"] += 1
+            return ("garuda_api", date_str, flights, None)
         except Exception as e:
-            stats["garuda_api"]["errors"] += 1
-            total_errors += 1
-            all_records.append({
-                "run_id": run_id, "route": route, "airline": "-", "source": "garuda_api",
-                "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
-                "flight_number": "-", "depart_time": "-", "arrive_time": "-",
-                "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_GARUDA,
-                "source_type": "airline", "status_scrape": "FAILED", "error_reason": str(e),
-            })
-        time.sleep(settings.SCRAPE_DELAY)
+            return ("garuda_api", date_str, [], str(e))
 
-        # Citilink
-        if token:
-            try:
-                flights = scrape_citilink(origin, destination, date_str, token)
-                for f in flights:
-                    all_records.append(_normalize_citilink(f, run_id, route))
-                stats["citilink_api"]["total_flights"] += len(flights)
-                if flights:
-                    stats["citilink_api"]["total_dates"] += 1
-            except Exception as e:
-                stats["citilink_api"]["errors"] += 1
-                total_errors += 1
-                all_records.append({
-                    "run_id": run_id, "route": route, "airline": "-", "source": "citilink_api",
-                    "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
-                    "flight_number": "-", "depart_time": "-", "arrive_time": "-",
-                    "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_CITILINK,
-                    "source_type": "airline", "status_scrape": "FAILED", "error_reason": str(e),
-                })
-            time.sleep(settings.SCRAPE_DELAY)
+    def _scrape_citilink_safe(date_str):
+        try:
+            flights = scrape_citilink(origin, destination, date_str, token)
+            return ("citilink_api", date_str, flights, None)
+        except Exception as e:
+            return ("citilink_api", date_str, [], str(e))
 
-        # BookCabin
+    def _scrape_bookcabin_safe(date_str):
         try:
             flights = scrape_bookcabin(origin, destination, date_str)
-            for f in flights:
-                all_records.append(_normalize_bookcabin(f, run_id, route))
-            stats["bookcabin_api"]["total_flights"] += len(flights)
-            if flights:
-                stats["bookcabin_api"]["total_dates"] += 1
+            return ("bookcabin_api", date_str, flights, None)
         except Exception as e:
-            stats["bookcabin_api"]["errors"] += 1
-            total_errors += 1
-            all_records.append({
-                "run_id": run_id, "route": route, "airline": "-", "source": "bookcabin_api",
-                "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
-                "flight_number": "-", "depart_time": "-", "arrive_time": "-",
-                "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_BOOKCABIN,
-                "source_type": "bookcabin", "status_scrape": "FAILED", "error_reason": str(e),
-            })
+            return ("bookcabin_api", date_str, [], str(e))
+
+    normalizers = {
+        "garuda_api": _normalize_garuda,
+        "citilink_api": _normalize_citilink,
+        "bookcabin_api": _normalize_bookcabin,
+    }
+    source_urls = {
+        "garuda_api": URL_GARUDA,
+        "citilink_api": URL_CITILINK,
+        "bookcabin_api": URL_BOOKCABIN,
+    }
+    source_types = {
+        "garuda_api": "airline",
+        "citilink_api": "airline",
+        "bookcabin_api": "bookcabin",
+    }
+
+    for date_str in dates:
+        # Launch 3 scrapers in parallel
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(_scrape_garuda_safe, date_str),
+                executor.submit(_scrape_bookcabin_safe, date_str),
+            ]
+            if token:
+                futures.append(executor.submit(_scrape_citilink_safe, date_str))
+
+            for future in as_completed(futures):
+                src, ds, flights, error = future.result()
+
+                if error:
+                    stats[src]["errors"] += 1
+                    total_errors += 1
+                    all_records.append({
+                        "run_id": run_id, "route": route, "airline": "-", "source": src,
+                        "travel_date": datetime.strptime(ds, "%Y-%m-%d").date(),
+                        "flight_number": "-", "depart_time": "-", "arrive_time": "-",
+                        "basic_fare": 0, "currency": "IDR",
+                        "scrape_source_page": source_urls[src],
+                        "source_type": source_types[src],
+                        "status_scrape": "FAILED", "error_reason": error,
+                    })
+                else:
+                    normalize_fn = normalizers[src]
+                    for f in flights:
+                        all_records.append(normalize_fn(f, run_id, route))
+                    stats[src]["total_flights"] += len(flights)
+                    if flights:
+                        stats[src]["total_dates"] += 1
+
+        # 1 delay per date batch (not per scraper)
         time.sleep(settings.SCRAPE_DELAY)
 
     # 3. Mark lowest fares

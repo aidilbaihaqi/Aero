@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     CITILINK_TOKEN: str = ""
 
     # Scraping
-    SCRAPE_DELAY: float = 1.0
+    SCRAPE_DELAY: float = 0.5
     DEFAULT_ORIGIN: str = "BTH"
     DEFAULT_DESTINATION: str = "CGK"
 
