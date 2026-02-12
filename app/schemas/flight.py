@@ -6,12 +6,31 @@ from pydantic import BaseModel, Field
 
 
 # =============================================
-# Response Models
+# Response: ScrapeRun
+# =============================================
+
+class ScrapeRunOut(BaseModel):
+    id: int
+    run_id: str
+    run_type: str
+    scraped_at: Optional[datetime] = None
+    scrape_date: date
+    route: str
+    status: str
+    total_records: int
+    total_errors: int
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================
+# Response: FlightFare
 # =============================================
 
 class FlightFareOut(BaseModel):
-    """Representasi 1 record penerbangan dari database."""
     id: int
+    run_id: str
     route: str
     airline: str
     source: str
@@ -21,16 +40,11 @@ class FlightFareOut(BaseModel):
     arrive_time: str
     basic_fare: Decimal
     currency: str = "IDR"
-
-    scraped_at: Optional[datetime] = None
-    scrape_date: date
     scrape_source_page: Optional[str] = None
-    error_reason: Optional[str] = None
-    run_id: str
-    run_type: str = "MANUAL"
     source_type: str
     raw_price_label: Optional[str] = None
     status_scrape: str = "SUCCESS"
+    error_reason: Optional[str] = None
     is_lowest_fare: bool = False
 
     class Config:
@@ -38,26 +52,46 @@ class FlightFareOut(BaseModel):
 
 
 # =============================================
-# Request Models
+# Response: FareDailySummary
+# =============================================
+
+class FareDailySummaryOut(BaseModel):
+    id: int
+    route: str
+    airline: str
+    travel_date: date
+    scrape_date: date
+    daily_min_price: Optional[Decimal] = None
+    daily_avg_price: Optional[Decimal] = None
+    daily_max_price: Optional[Decimal] = None
+    price_change_dod: Optional[Decimal] = None
+    volatility: Optional[float] = None
+    cheapest_airline_per_day: Optional[str] = None
+    cheapest_route_per_day: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================
+# Requests
 # =============================================
 
 class ScrapeRequest(BaseModel):
-    """Input untuk scrape penerbangan."""
-    origin: str = Field(default="BTH", description="Kode bandara asal")
-    destination: str = Field(default="CGK", description="Kode bandara tujuan")
-    start_date: date = Field(description="Tanggal mulai (YYYY-MM-DD)")
-    end_date: date = Field(description="Tanggal akhir (YYYY-MM-DD)")
-    citilink_token: Optional[str] = Field(default=None, description="JWT token Citilink (opsional, fallback ke .env)")
-    run_type: str = Field(default="MANUAL", description="MANUAL atau SCHEDULED")
+    origin: str = Field(default="BTH")
+    destination: str = Field(default="CGK")
+    start_date: date
+    end_date: date
+    citilink_token: Optional[str] = Field(default=None)
+    run_type: str = Field(default="MANUAL")
 
 
 class ExportRequest(BaseModel):
-    """Input untuk export XLSX."""
     origin: str = Field(default="BTH")
     destination: str = Field(default="CGK")
-    start_date: date = Field(description="Tanggal mulai data")
-    end_date: date = Field(description="Tanggal akhir data")
-    scrape_date: Optional[date] = Field(default=None, description="Filter scrape_date tertentu (opsional)")
+    start_date: date
+    end_date: date
+    scrape_date: Optional[date] = Field(default=None)
 
 
 # =============================================
@@ -65,7 +99,6 @@ class ExportRequest(BaseModel):
 # =============================================
 
 class ScrapeStats(BaseModel):
-    """Statistik per sumber scraping."""
     source: str
     total_flights: int
     total_dates: int
@@ -73,7 +106,6 @@ class ScrapeStats(BaseModel):
 
 
 class ScrapeResponse(BaseModel):
-    """Response setelah bulk scrape."""
     run_id: str
     route: str
     start_date: date
@@ -81,14 +113,3 @@ class ScrapeResponse(BaseModel):
     run_type: str
     total_records: int
     stats: list[ScrapeStats]
-
-
-class HistoryQuery(BaseModel):
-    """Query parameters untuk history (digunakan sebagai query params)."""
-    route: Optional[str] = None
-    airline: Optional[str] = None
-    travel_date_from: Optional[date] = None
-    travel_date_to: Optional[date] = None
-    scrape_date: Optional[date] = None
-    limit: int = Field(default=100, le=1000)
-    offset: int = Field(default=0, ge=0)

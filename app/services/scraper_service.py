@@ -1,22 +1,24 @@
 """
-scraper_service.py — Orchestrate scraping dari semua sumber dan simpan ke database.
+scraper_service.py — Orchestrate scraping dan simpan ke database (3-table structure).
 """
 
 import time
 import uuid
+import statistics
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.config import settings
-from app.models.flight import FlightFare
+from app.models.flight import ScrapeRun, FlightFare, FareDailySummary
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
 from app.scrapers.citilink import scrape_citilink, URL_CITILINK
 from app.scrapers.bookcabin import scrape_bookcabin, URL_BOOKCABIN
 
 
 def generate_dates(start: date, end: date) -> list[str]:
-    """Generate list tanggal string dari start sampai end (inclusive)."""
     dates = []
     current = start
     while current <= end:
@@ -25,10 +27,14 @@ def generate_dates(start: date, end: date) -> list[str]:
     return dates
 
 
-def _normalize_garuda(flight: dict, run_id: str, scrape_dt: date, run_type: str) -> dict:
-    """Normalize output garuda scraper ke format FlightFare."""
+# =============================================
+# Normalizers per scraper
+# =============================================
+
+def _normalize_garuda(flight: dict, run_id: str, route: str) -> dict:
     return {
-        "route": flight["route"],
+        "run_id": run_id,
+        "route": route,
         "airline": flight["airline"],
         "source": "garuda_api",
         "travel_date": datetime.strptime(flight["travel_date"], "%Y-%m-%d").date(),
@@ -37,20 +43,17 @@ def _normalize_garuda(flight: dict, run_id: str, scrape_dt: date, run_type: str)
         "arrive_time": flight["arrival_time"],
         "basic_fare": flight["total_fare"],
         "currency": "IDR",
-        "scrape_date": scrape_dt,
         "scrape_source_page": URL_GARUDA,
-        "run_id": run_id,
-        "run_type": run_type,
         "source_type": "airline",
         "raw_price_label": flight.get("fare_family", ""),
         "status_scrape": "SUCCESS",
     }
 
 
-def _normalize_citilink(flight: dict, run_id: str, scrape_dt: date, run_type: str) -> dict:
-    """Normalize output citilink scraper ke format FlightFare."""
+def _normalize_citilink(flight: dict, run_id: str, route: str) -> dict:
     return {
-        "route": flight["route"],
+        "run_id": run_id,
+        "route": route,
         "airline": flight["airline"],
         "source": "citilink_api",
         "travel_date": datetime.strptime(flight["travel_date"], "%Y-%m-%d").date(),
@@ -59,20 +62,17 @@ def _normalize_citilink(flight: dict, run_id: str, scrape_dt: date, run_type: st
         "arrive_time": flight["arrival_time"],
         "basic_fare": flight["fare_total"],
         "currency": "IDR",
-        "scrape_date": scrape_dt,
         "scrape_source_page": URL_CITILINK,
-        "run_id": run_id,
-        "run_type": run_type,
         "source_type": "airline",
         "raw_price_label": "",
         "status_scrape": "SUCCESS",
     }
 
 
-def _normalize_bookcabin(flight: dict, run_id: str, scrape_dt: date, run_type: str) -> dict:
-    """Normalize output bookcabin scraper ke format FlightFare."""
+def _normalize_bookcabin(flight: dict, run_id: str, route: str) -> dict:
     return {
-        "route": flight["route"],
+        "run_id": run_id,
+        "route": route,
         "airline": flight["airline"],
         "source": "bookcabin_api",
         "travel_date": datetime.strptime(flight["travel_date"], "%Y-%m-%d").date(),
@@ -81,56 +81,109 @@ def _normalize_bookcabin(flight: dict, run_id: str, scrape_dt: date, run_type: s
         "arrive_time": flight["arrival_time"],
         "basic_fare": flight["total_fare"],
         "currency": "IDR",
-        "scrape_date": scrape_dt,
         "scrape_source_page": URL_BOOKCABIN,
-        "run_id": run_id,
-        "run_type": run_type,
         "source_type": "bookcabin",
         "raw_price_label": "",
         "status_scrape": "SUCCESS",
     }
 
 
-def _save_error(db: Session, run_id: str, scrape_dt: date, run_type: str,
-                source: str, source_type: str, route: str,
-                travel_date_str: str, error: str, url: str):
-    """Simpan record error ke database."""
-    record = FlightFare(
-        route=route,
-        airline="-",
-        source=source,
-        travel_date=datetime.strptime(travel_date_str, "%Y-%m-%d").date(),
-        flight_number="-",
-        depart_time="-",
-        arrive_time="-",
-        basic_fare=0,
-        currency="IDR",
-        scrape_date=scrape_dt,
-        scrape_source_page=url,
-        error_reason=str(error),
-        run_id=run_id,
-        run_type=run_type,
-        source_type=source_type,
-        status_scrape="FAILED",
-    )
-    db.add(record)
-
+# =============================================
+# Mark lowest fares
+# =============================================
 
 def _mark_lowest_fares(records: list[dict]) -> list[dict]:
-    """Mark is_lowest_fare=True untuk harga terendah per airline+travel_date."""
-    # Group by airline + travel_date
     groups: dict[str, list[dict]] = {}
     for r in records:
         key = f"{r['airline']}|{r['travel_date']}"
         groups.setdefault(key, []).append(r)
 
     for group in groups.values():
-        min_fare = min(r["basic_fare"] for r in group if r.get("status_scrape") == "SUCCESS")
+        success = [r for r in group if r.get("status_scrape") == "SUCCESS"]
+        if not success:
+            continue
+        min_fare = min(r["basic_fare"] for r in success)
         for r in group:
             r["is_lowest_fare"] = (r["basic_fare"] == min_fare and r.get("status_scrape") == "SUCCESS")
 
     return records
 
+
+# =============================================
+# Compute daily summary (data turunan)
+# =============================================
+
+def _compute_daily_summary(db: Session, run_id: str, route: str, scrape_dt: date):
+    """Hitung agregasi harian dan simpan ke fare_daily_summary."""
+    fares = db.query(FlightFare).filter(
+        FlightFare.run_id == run_id,
+        FlightFare.status_scrape == "SUCCESS",
+    ).all()
+
+    if not fares:
+        return
+
+    # Group by airline + travel_date
+    groups: dict[str, list[FlightFare]] = {}
+    for f in fares:
+        key = f"{f.airline}|{f.travel_date}"
+        groups.setdefault(key, []).append(f)
+
+    # Group by travel_date only (untuk cheapest_airline_per_day)
+    by_date: dict[date, list[FlightFare]] = {}
+    for f in fares:
+        by_date.setdefault(f.travel_date, []).append(f)
+
+    # Hitung cheapest airline per date
+    cheapest_airline_map: dict[date, str] = {}
+    for td, date_fares in by_date.items():
+        cheapest = min(date_fares, key=lambda x: float(x.basic_fare))
+        cheapest_airline_map[td] = cheapest.airline
+
+    # Hitung summary per airline + travel_date
+    for key, group_fares in groups.items():
+        airline = group_fares[0].airline
+        travel_dt = group_fares[0].travel_date
+        prices = [float(f.basic_fare) for f in group_fares]
+
+        daily_min = min(prices)
+        daily_max = max(prices)
+        daily_avg = sum(prices) / len(prices)
+        vol = statistics.stdev(prices) if len(prices) > 1 else 0.0
+
+        # Price change DoD: bandingkan dengan scrape sebelumnya
+        prev_summary = db.query(FareDailySummary).filter(
+            FareDailySummary.route == route,
+            FareDailySummary.airline == airline,
+            FareDailySummary.travel_date == travel_dt,
+            FareDailySummary.scrape_date < scrape_dt,
+        ).order_by(FareDailySummary.scrape_date.desc()).first()
+
+        dod = None
+        if prev_summary and prev_summary.daily_min_price:
+            dod = Decimal(str(daily_min)) - prev_summary.daily_min_price
+
+        summary = FareDailySummary(
+            route=route,
+            airline=airline,
+            travel_date=travel_dt,
+            scrape_date=scrape_dt,
+            daily_min_price=daily_min,
+            daily_avg_price=round(daily_avg, 2),
+            daily_max_price=daily_max,
+            price_change_dod=dod,
+            volatility=round(vol, 2),
+            cheapest_airline_per_day=cheapest_airline_map.get(travel_dt, ""),
+            cheapest_route_per_day=route,
+        )
+        db.add(summary)
+
+    db.commit()
+
+
+# =============================================
+# Main scrape orchestrator
+# =============================================
 
 def scrape_and_save(
     db: Session,
@@ -141,77 +194,113 @@ def scrape_and_save(
     citilink_token: str | None = None,
     run_type: str = "MANUAL",
 ) -> dict:
-    """
-    Scrape seluruh tanggal dari semua sumber dan simpan ke database.
+    """Scrape semua tanggal, simpan ke DB, hitung summary."""
 
-    Returns:
-        dict dengan run_id, total_records, dan stats per source.
-    """
     run_id = str(uuid.uuid4())
     scrape_dt = date.today()
     route = f"{origin}-{destination}"
     token = citilink_token or settings.CITILINK_TOKEN
     dates = generate_dates(start_date, end_date)
 
+    # 1. Buat ScrapeRun record
+    run = ScrapeRun(
+        run_id=run_id,
+        run_type=run_type,
+        scrape_date=scrape_dt,
+        route=route,
+        status="RUNNING",
+    )
+    db.add(run)
+    db.commit()
+
     all_records: list[dict] = []
+    total_errors = 0
     stats = {
         "garuda_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
         "citilink_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
         "bookcabin_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
     }
 
+    # 2. Scrape per tanggal
     for date_str in dates:
-        # --- Garuda ---
+        # Garuda
         try:
             flights = scrape_garuda(origin, destination, date_str)
             for f in flights:
-                all_records.append(_normalize_garuda(f, run_id, scrape_dt, run_type))
+                all_records.append(_normalize_garuda(f, run_id, route))
             stats["garuda_api"]["total_flights"] += len(flights)
             if flights:
                 stats["garuda_api"]["total_dates"] += 1
         except Exception as e:
             stats["garuda_api"]["errors"] += 1
-            _save_error(db, run_id, scrape_dt, run_type, "garuda_api", "airline",
-                        route, date_str, str(e), URL_GARUDA)
+            total_errors += 1
+            all_records.append({
+                "run_id": run_id, "route": route, "airline": "-", "source": "garuda_api",
+                "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
+                "flight_number": "-", "depart_time": "-", "arrive_time": "-",
+                "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_GARUDA,
+                "source_type": "airline", "status_scrape": "FAILED", "error_reason": str(e),
+            })
         time.sleep(settings.SCRAPE_DELAY)
 
-        # --- Citilink ---
+        # Citilink
         if token:
             try:
                 flights = scrape_citilink(origin, destination, date_str, token)
                 for f in flights:
-                    all_records.append(_normalize_citilink(f, run_id, scrape_dt, run_type))
+                    all_records.append(_normalize_citilink(f, run_id, route))
                 stats["citilink_api"]["total_flights"] += len(flights)
                 if flights:
                     stats["citilink_api"]["total_dates"] += 1
             except Exception as e:
                 stats["citilink_api"]["errors"] += 1
-                _save_error(db, run_id, scrape_dt, run_type, "citilink_api", "airline",
-                            route, date_str, str(e), URL_CITILINK)
+                total_errors += 1
+                all_records.append({
+                    "run_id": run_id, "route": route, "airline": "-", "source": "citilink_api",
+                    "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
+                    "flight_number": "-", "depart_time": "-", "arrive_time": "-",
+                    "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_CITILINK,
+                    "source_type": "airline", "status_scrape": "FAILED", "error_reason": str(e),
+                })
             time.sleep(settings.SCRAPE_DELAY)
 
-        # --- BookCabin ---
+        # BookCabin
         try:
             flights = scrape_bookcabin(origin, destination, date_str)
             for f in flights:
-                all_records.append(_normalize_bookcabin(f, run_id, scrape_dt, run_type))
+                all_records.append(_normalize_bookcabin(f, run_id, route))
             stats["bookcabin_api"]["total_flights"] += len(flights)
             if flights:
                 stats["bookcabin_api"]["total_dates"] += 1
         except Exception as e:
             stats["bookcabin_api"]["errors"] += 1
-            _save_error(db, run_id, scrape_dt, run_type, "bookcabin_api", "bookcabin",
-                        route, date_str, str(e), URL_BOOKCABIN)
+            total_errors += 1
+            all_records.append({
+                "run_id": run_id, "route": route, "airline": "-", "source": "bookcabin_api",
+                "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
+                "flight_number": "-", "depart_time": "-", "arrive_time": "-",
+                "basic_fare": 0, "currency": "IDR", "scrape_source_page": URL_BOOKCABIN,
+                "source_type": "bookcabin", "status_scrape": "FAILED", "error_reason": str(e),
+            })
         time.sleep(settings.SCRAPE_DELAY)
 
-    # Mark lowest fares
+    # 3. Mark lowest fares
     if all_records:
         all_records = _mark_lowest_fares(all_records)
 
-    # Bulk insert ke database
+    # 4. Bulk insert flight_fares
     for r in all_records:
         db.add(FlightFare(**r))
     db.commit()
+
+    # 5. Update ScrapeRun status
+    run.status = "COMPLETED"
+    run.total_records = len(all_records)
+    run.total_errors = total_errors
+    db.commit()
+
+    # 6. Compute daily summary (data turunan)
+    _compute_daily_summary(db, run_id, route, scrape_dt)
 
     return {
         "run_id": run_id,
@@ -221,7 +310,6 @@ def scrape_and_save(
         "run_type": run_type,
         "total_records": len(all_records),
         "stats": [
-            {"source": src, **data}
-            for src, data in stats.items()
+            {"source": src, **data} for src, data in stats.items()
         ],
     }
