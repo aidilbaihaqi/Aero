@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.models.flight import FlightFare
+from app.models.flight import FlightFare, ScrapeRun
 
 
 EXPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "exports")
@@ -32,8 +32,8 @@ def export_triangle_xlsx(
     db: Session,
     origin: str,
     destination: str,
-    start_date: date,
-    end_date: date,
+    start_date: date | None = None,
+    end_date: date | None = None,
     scrape_date_filter: date | None = None,
 ) -> str:
     """
@@ -48,37 +48,42 @@ def export_triangle_xlsx(
     _ensure_exports_dir()
     route = f"{origin}-{destination}"
 
-    # Query data
-    query = db.query(FlightFare).filter(
+    # Query data — JOIN ScrapeRun untuk scrape_date
+    query = db.query(FlightFare, ScrapeRun.scrape_date).join(
+        ScrapeRun, FlightFare.run_id == ScrapeRun.run_id
+    ).filter(
         FlightFare.route == route,
-        FlightFare.travel_date >= start_date,
-        FlightFare.travel_date <= end_date,
         FlightFare.status_scrape == "SUCCESS",
     )
+
+    if start_date:
+        query = query.filter(FlightFare.travel_date >= start_date)
+    if end_date:
+        query = query.filter(FlightFare.travel_date <= end_date)
     if scrape_date_filter:
-        query = query.filter(FlightFare.scrape_date == scrape_date_filter)
+        query = query.filter(ScrapeRun.scrape_date == scrape_date_filter)
 
-    records = query.order_by(FlightFare.scrape_date, FlightFare.travel_date).all()
+    rows = query.order_by(ScrapeRun.scrape_date, FlightFare.travel_date).all()
 
-    if not records:
+    if not rows:
         return ""
 
     # Group by airline -> scrape_date -> travel_date -> cheapest price
     data: dict[str, dict[date, dict[date, float]]] = {}
-    for r in records:
-        airline = r.airline
+    all_travel_dates_set: set[date] = set()
+    for fare, scrape_dt in rows:
+        airline = fare.airline
         if airline not in data:
             data[airline] = {}
-        sd = r.scrape_date
-        if sd not in data[airline]:
-            data[airline][sd] = {}
-        td = r.travel_date
-        fare = float(r.basic_fare)
-        if td not in data[airline][sd] or fare < data[airline][sd][td]:
-            data[airline][sd][td] = fare
+        if scrape_dt not in data[airline]:
+            data[airline][scrape_dt] = {}
+        td = fare.travel_date
+        all_travel_dates_set.add(td)
+        price = float(fare.basic_fare)
+        if td not in data[airline][scrape_dt] or price < data[airline][scrape_dt][td]:
+            data[airline][scrape_dt][td] = price
 
-    # Collect all travel_dates
-    all_travel_dates = sorted({r.travel_date for r in records})
+    all_travel_dates = sorted(all_travel_dates_set)
 
     # Build XLSX
     wb = Workbook()
@@ -133,7 +138,10 @@ def export_triangle_xlsx(
                 cell.alignment = Alignment(horizontal="right")
 
     # Save
-    filename = f"aero_{route}_{start_date}_{end_date}.xlsx"
+    start_str = start_date.strftime("%Y-%m-%d") if start_date else (min(all_travel_dates).strftime("%Y-%m-%d") if all_travel_dates else "ALL")
+    end_str = end_date.strftime("%Y-%m-%d") if end_date else (max(all_travel_dates).strftime("%Y-%m-%d") if all_travel_dates else "ALL")
+
+    filename = f"aero_{route}_{start_str}_{end_str}.xlsx"
     filepath = os.path.join(EXPORTS_DIR, filename)
     wb.save(filepath)
 

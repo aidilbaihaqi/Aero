@@ -89,8 +89,8 @@ class ScrapeRequest(BaseModel):
 class ExportRequest(BaseModel):
     origin: str = Field(default="BTH")
     destination: str = Field(default="CGK")
-    start_date: date
-    end_date: date
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     scrape_date: Optional[date] = Field(default=None)
 
 

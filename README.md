@@ -83,6 +83,15 @@ POST /api/flights/bulk
 }
 ```
 
+**Export XLSX (All Dates):**
+```json
+POST /api/flights/export
+{
+  "origin": "BTH",
+  "destination": "CGK"
+}
+```
+
 **Query history:**
 ```
 GET /api/flights/history?route=BTH-CGK&airline=citilink&limit=50
