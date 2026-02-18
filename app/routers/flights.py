@@ -14,9 +14,11 @@ from app.models.flight import FlightFare, ScrapeRun, FareDailySummary
 from app.schemas.flight import (
     FlightFareOut, ScrapeRunOut, FareDailySummaryOut,
     ScrapeRequest, ScrapeResponse, ExportRequest,
+    BulkRoutesRequest, BulkRoutesResponse, RouteItem,
 )
 from app.services.scraper_service import scrape_and_save
 from app.services.export_service import export_triangle_xlsx
+from app.config import settings
 
 router = APIRouter(prefix="/api/flights", tags=["Flights"])
 
@@ -41,10 +43,45 @@ def search_flights(
 
 @router.post("/bulk", response_model=ScrapeResponse)
 def bulk_scrape(req: ScrapeRequest, db: Session = Depends(get_db)):
-    """Scrape penerbangan untuk range tanggal, simpan ke DB."""
+    """Scrape penerbangan untuk 1 rute, range tanggal."""
     return scrape_and_save(db=db, origin=req.origin, destination=req.destination,
                            start_date=req.start_date, end_date=req.end_date,
                            citilink_token=req.citilink_token, run_type=req.run_type)
+
+
+@router.post("/bulk-routes", response_model=BulkRoutesResponse)
+def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db)):
+    """Scrape beberapa rute sekaligus.
+    
+    Jika `routes` kosong, pakai DEFAULT_ROUTES dari config:
+    BTH-CGK, BTH-KNO, BTH-SUB, BTH-PDG, TNJ-CGK
+    """
+    # Pakai default routes jika tidak ada
+    routes = req.routes
+    if not routes:
+        routes = [RouteItem(**r) for r in settings.DEFAULT_ROUTES]
+
+    results: list[ScrapeResponse] = []
+    total_records = 0
+
+    for route in routes:
+        result = scrape_and_save(
+            db=db,
+            origin=route.origin,
+            destination=route.destination,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            citilink_token=req.citilink_token,
+            run_type=req.run_type,
+        )
+        results.append(ScrapeResponse(**result))
+        total_records += result["total_records"]
+
+    return BulkRoutesResponse(
+        total_routes=len(routes),
+        total_records=total_records,
+        results=results,
+    )
 
 
 # =============================================

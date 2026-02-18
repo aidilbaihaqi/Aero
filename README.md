@@ -57,49 +57,45 @@ Buka **Swagger UI** di [http://localhost:8000/docs](http://localhost:8000/docs)
 | Method | Endpoint | Deskripsi |
 |--------|----------|-----------|
 | `GET` | `/api/flights/search` | Scrape 1 tanggal, simpan ke DB |
-| `POST` | `/api/flights/bulk` | Scrape range tanggal, simpan ke DB |
+| `POST` | `/api/flights/bulk` | Scrape 1 rute, range tanggal |
+| `POST` | `/api/flights/bulk-routes` | Scrape **beberapa rute** sekaligus |
 | `POST` | `/api/flights/export` | Export dari DB ke XLSX (triangle format) |
 | `GET` | `/api/flights/history` | Query riwayat harga (data primer) |
 | `GET` | `/api/flights/runs` | List scrape runs (data meta) |
 | `GET` | `/api/flights/runs/{run_id}` | Detail 1 scrape run |
 | `GET` | `/api/flights/summary` | Data turunan: min/avg/max/DoD/volatility |
 
+### Default Routes
+
+Jika `routes` tidak diisi, akan scrape 5 rute default:
+- `BTH → CGK` (Garuda, Citilink, Lion Air, Super Air Jet, Batik Air)
+- `BTH → KNO` (Lion Air)
+- `BTH → SUB` (Lion Air)
+- `BTH → PDG` (Lion Air)
+- `TNJ → CGK` (Garuda, Citilink, Batik Air)
+
 ### Contoh Request
 
-**Search 1 tanggal:**
-```
-GET /api/flights/search?origin=BTH&destination=CGK&date=2026-02-15
-```
-
-**Bulk scrape:**
+**Bulk routes (semua rute default, sampai 31 Maret):**
 ```json
-POST /api/flights/bulk
+POST /api/flights/bulk-routes
 {
-  "origin": "BTH",
-  "destination": "CGK",
-  "start_date": "2026-02-15",
-  "end_date": "2026-03-31",
-  "run_type": "MANUAL"
+  "start_date": "2026-02-18",
+  "end_date": "2026-03-31"
 }
 ```
 
-**Export XLSX (All Dates):**
+**Bulk routes (rute custom):**
 ```json
-POST /api/flights/export
+POST /api/flights/bulk-routes
 {
-  "origin": "BTH",
-  "destination": "CGK"
+  "routes": [
+    {"origin": "BTH", "destination": "CGK"},
+    {"origin": "TNJ", "destination": "CGK"}
+  ],
+  "start_date": "2026-02-18",
+  "end_date": "2026-03-31"
 }
-```
-
-**Query history:**
-```
-GET /api/flights/history?route=BTH-CGK&airline=citilink&limit=50
-```
-
-**Query daily summary:**
-```
-GET /api/flights/summary?route=BTH-CGK&travel_date_from=2026-02-15
 ```
 
 ## Database Schema

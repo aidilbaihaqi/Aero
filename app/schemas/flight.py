@@ -86,6 +86,24 @@ class ScrapeRequest(BaseModel):
     run_type: str = Field(default="MANUAL")
 
 
+class RouteItem(BaseModel):
+    """Satu rute untuk multi-route scraping."""
+    origin: str = Field(description="Kode bandara asal, e.g. BTH")
+    destination: str = Field(description="Kode bandara tujuan, e.g. CGK")
+
+
+class BulkRoutesRequest(BaseModel):
+    """Request untuk scrape beberapa rute sekaligus."""
+    routes: Optional[list[RouteItem]] = Field(
+        default=None,
+        description="List rute. Jika kosong, pakai DEFAULT_ROUTES dari config."
+    )
+    start_date: date
+    end_date: date = Field(default=date(2026, 3, 31))
+    citilink_token: Optional[str] = Field(default=None)
+    run_type: str = Field(default="MANUAL")
+
+
 class ExportRequest(BaseModel):
     origin: str = Field(default="BTH")
     destination: str = Field(default="CGK")
@@ -113,3 +131,11 @@ class ScrapeResponse(BaseModel):
     run_type: str
     total_records: int
     stats: list[ScrapeStats]
+
+
+class BulkRoutesResponse(BaseModel):
+    """Response setelah multi-route scrape."""
+    total_routes: int
+    total_records: int
+    results: list[ScrapeResponse]
+

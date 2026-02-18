@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     SCRAPE_DELAY: float = 0.5
     DEFAULT_ORIGIN: str = "BTH"
     DEFAULT_DESTINATION: str = "CGK"
+    DEFAULT_END_DATE: str = "2026-03-31"
+
+    # Rute default yang wajib di-scrape
+    DEFAULT_ROUTES: list[dict] = [
+        {"origin": "BTH", "destination": "CGK"},
+        {"origin": "BTH", "destination": "KNO"},
+        {"origin": "BTH", "destination": "SUB"},
+        {"origin": "BTH", "destination": "PDG"},
+        {"origin": "TNJ", "destination": "CGK"},
+    ]
 
     class Config:
         env_file = ".env"
