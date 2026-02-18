@@ -1,0 +1,222 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Next.js Source Detection */
+@source "../app/**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
+@source "../lib/**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    /* Aero Design System - Fonts */
+    --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+    --font-body: 'Sora', ui-sans-serif, system-ui, sans-serif;
+    --font-sans: var(--font-body);
+    --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+    /* Aero Design System - Black & White Theme */
+    
+    /* Base Colors */
+    --background: oklch(1 0 0); /* Pure white */
+    --background-secondary: oklch(0.973 0 0); /* #F8F8F8 */
+    --background-dark: oklch(0.2 0 0); /* #1A1A1A - Solid black cards */
+    
+    --foreground: oklch(0.1 0 0); /* #000000 - Black text */
+    --foreground-secondary: oklch(0.5 0 0); /* #666666 - Gray text */
+    --foreground-inverse: oklch(0.985 0 0); /* #FFFFFF - White text on dark */
+    --foreground-muted: oklch(0.65 0 0); /* #999999 - Muted gray */
+    
+    /* Card Colors */
+    --card: oklch(1 0 0); /* White cards */
+    --card-foreground: oklch(0.1 0 0);
+    --card-dark: oklch(0.2 0 0); /* Dark solid cards */
+    --card-dark-foreground: oklch(0.985 0 0);
+    
+    /* Glassmorphism */
+    --glass-bg: oklch(1 0 0 / 0.1); /* 10% white */
+    --glass-border: oklch(1 0 0 / 0.2); /* 20% white */
+    --glass-white-bg: oklch(1 0 0 / 0.6); /* 60% white for glass-on-white */
+    --glass-white-border: oklch(0.1 0 0 / 0.1); /* 10% black border */
+    
+    /* Borders */
+    --border: oklch(0.92 0 0); /* #E5E5E5 - Light gray */
+    --border-dark: oklch(0.24 0 0); /* #2A2A2A */
+    --input: oklch(0.92 0 0);
+    
+    /* Accent Colors (Minimal use) */
+    --accent-success: oklch(0.66 0.173 158); /* #10B981 - Green */
+    --accent-warning: oklch(0.78 0.171 62); /* #F59E0B - Amber */
+    --accent-error: oklch(0.628 0.258 29); /* #EF4444 - Red */
+    --accent-info: oklch(0.573 0.214 262); /* #3B82F6 - Blue */
+    
+    /* Legacy compatibility mappings */
+    --popover: var(--card);
+    --popover-foreground: var(--card-foreground);
+    --primary: var(--background-dark);
+    --primary-foreground: var(--foreground-inverse);
+    --secondary: var(--background-secondary);
+    --secondary-foreground: var(--foreground);
+    --muted: var(--background-secondary);
+    --muted-foreground: var(--foreground-secondary);
+    --accent: var(--background-secondary);
+    --accent-foreground: var(--foreground);
+    --destructive: var(--accent-error);
+    --destructive-foreground: var(--foreground-inverse);
+    --ring: oklch(0.87 0 0);
+    
+    /* Chart colors */
+    --chart-1: var(--accent-info);
+    --chart-2: var(--accent-success);
+    --chart-3: var(--accent-warning);
+    --chart-4: var(--accent-error);
+    --chart-5: oklch(0.7 0.15 300);
+    
+    /* Border radius */
+    --radius: 1rem; /* 16px - Aero default */
+    
+    /* Sidebar colors */
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--background-dark);
+    --sidebar-primary-foreground: var(--foreground-inverse);
+    --sidebar-accent: var(--background-secondary);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+}
+
+.dark {
+    /* Aero Dark Mode - Inverted Black & White */
+    
+    --background: oklch(0.15 0 0); /* Near black */
+    --background-secondary: oklch(0.22 0 0); /* Dark gray */
+    --background-dark: oklch(0.95 0 0); /* Light solid cards in dark mode */
+    
+    --foreground: oklch(0.985 0 0); /* White text */
+    --foreground-secondary: oklch(0.65 0 0); /* Light gray text */
+    --foreground-inverse: oklch(0.1 0 0); /* Black text on light */
+    --foreground-muted: oklch(0.5 0 0); /* Muted gray */
+    
+    --card: oklch(0.2 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --card-dark: oklch(0.95 0 0);
+    --card-dark-foreground: oklch(0.1 0 0);
+    
+    --glass-bg: oklch(1 0 0 / 0.05);
+    --glass-border: oklch(1 0 0 / 0.1);
+    --glass-white-bg: oklch(0.1 0 0 / 0.6);
+    --glass-white-border: oklch(1 0 0 / 0.1);
+    
+    --border: oklch(0.3 0 0);
+    --border-dark: oklch(0.7 0 0);
+    --input: oklch(0.3 0 0);
+    
+    --accent-success: oklch(0.66 0.173 158);
+    --accent-warning: oklch(0.78 0.171 62);
+    --accent-error: oklch(0.628 0.258 29);
+    --accent-info: oklch(0.573 0.214 262);
+    
+    --ring: oklch(0.439 0 0);
+    
+    --sidebar: oklch(0.2 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.95 0 0);
+    --sidebar-primary-foreground: oklch(0.1 0 0);
+    --sidebar-accent: oklch(0.25 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.3 0 0);
+    --sidebar-ring: var(--ring);
+}
+
+/* Custom Animations for Login Page */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@layer utilities {
+    .animate-float {
+        animation: float 3s ease-in-out infinite;
+    }
+    
+    .animate-fade-in-up {
+        animation: fade-in-up 0.8s ease-out forwards;
+        opacity: 0;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}

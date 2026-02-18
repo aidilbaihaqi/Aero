@@ -1,190 +1,63 @@
-# ✈ Aero — Flight Price Scraper API
+# ✈️ Aero — Flight Fare Tracker
 
-Backend API untuk scraping dan monitoring harga tiket pesawat domestik Indonesia, dibangun dengan **FastAPI** dan **PostgreSQL**.
+Aplikasi pelacak harga tiket pesawat dengan scraping otomatis dari beberapa maskapai.
 
-## Maskapai yang Didukung
+## Struktur Proyek
 
-| Sumber API | Maskapai | Tipe |
-|---|---|---|
-| **Garuda API** | Garuda Indonesia, Citilink (codeshare) | airline |
-| **Citilink API** | Citilink (QG) | airline |
-| **BookCabin API** | Super Air Jet, Batik Air, Lion Air | bookcabin |
+```
+aero/
+├── backend/              ← FastAPI + PostgreSQL
+│   ├── app/              ← Source code
+│   ├── .env              ← Backend env vars
+│   ├── .venv/            ← Python virtual environment
+│   ├── Makefile
+│   └── requirements.txt
+├── client/               ← Next.js Frontend
+│   ├── app/              ← Pages
+│   ├── components/       ← React components
+│   └── package.json
+├── .gitignore
+└── README.md
+```
 
-## Setup
+## Quick Start
 
-### 1. Install Dependencies
-
+### Backend
 ```bash
+cd backend
 python -m venv .venv
-source .venv/Scripts/activate  # Windows
+.\.venv\Scripts\Activate.ps1    # Windows PowerShell
 pip install -r requirements.txt
+make dev
 ```
+API docs: http://localhost:8000/docs
 
-### 2. Setup PostgreSQL
-
-Buat database:
-
-```sql
-CREATE DATABASE aero;
-```
-
-### 3. Konfigurasi Environment
-
-Copy `.env.example` ke `.env` dan sesuaikan:
-
+### Frontend
 ```bash
-cp .env.example .env
+cd client
+bun install
+bun dev
 ```
-
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/aero
-CITILINK_TOKEN=your_jwt_token_here
-SCRAPE_DELAY=1.0
-```
-
-### 4. Jalankan Server
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Tabel akan otomatis dibuat saat pertama kali server jalan.
-
-Buka **Swagger UI** di [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ## API Endpoints
 
 | Method | Endpoint | Deskripsi |
 |--------|----------|-----------|
-| `GET` | `/api/flights/search` | Scrape 1 tanggal, simpan ke DB |
+| `GET` | `/api/flights/search` | Scrape 1 tanggal |
 | `POST` | `/api/flights/bulk` | Scrape 1 rute, range tanggal |
-| `POST` | `/api/flights/bulk-routes` | Scrape **beberapa rute** sekaligus |
-| `POST` | `/api/flights/export` | Export dari DB ke XLSX (triangle format) |
-| `GET` | `/api/flights/history` | Query riwayat harga (data primer) |
-| `GET` | `/api/flights/runs` | List scrape runs (data meta) |
-| `GET` | `/api/flights/runs/{run_id}` | Detail 1 scrape run |
-| `GET` | `/api/flights/summary` | Data turunan: min/avg/max/DoD/volatility |
+| `POST` | `/api/flights/bulk-routes` | Scrape beberapa rute sekaligus |
+| `POST` | `/api/flights/export` | Export ke XLSX |
+| `GET` | `/api/flights/history` | Query riwayat harga |
+| `GET` | `/api/flights/runs` | List scrape runs |
+| `GET` | `/api/flights/runs/{run_id}` | Detail scrape run |
+| `GET` | `/api/flights/summary` | Min/avg/max/DoD/volatility |
 
-### Default Routes
+## Rute Default
 
-Jika `routes` tidak diisi, akan scrape 5 rute default:
-- `BTH → CGK` (Garuda, Citilink, Lion Air, Super Air Jet, Batik Air)
-- `BTH → KNO` (Lion Air)
-- `BTH → SUB` (Lion Air)
-- `BTH → PDG` (Lion Air)
-- `TNJ → CGK` (Garuda, Citilink, Batik Air)
-
-### Contoh Request
-
-**Bulk routes (semua rute default, sampai 31 Maret):**
-```json
-POST /api/flights/bulk-routes
-{
-  "start_date": "2026-02-18",
-  "end_date": "2026-03-31"
-}
-```
-
-**Bulk routes (rute custom):**
-```json
-POST /api/flights/bulk-routes
-{
-  "routes": [
-    {"origin": "BTH", "destination": "CGK"},
-    {"origin": "TNJ", "destination": "CGK"}
-  ],
-  "start_date": "2026-02-18",
-  "end_date": "2026-03-31"
-}
-```
-
-## Database Schema
-
-### 1. `scrape_runs` — Data Meta
-
-| Kolom | Tipe | Deskripsi |
-|-------|------|-----------|
-| run_id | VARCHAR(50) | UUID per scrape run |
-| run_type | VARCHAR(10) | SCHEDULED / MANUAL |
-| scraped_at | TIMESTAMP | Waktu pengambilan data |
-| scrape_date | DATE | Tanggal pengamatan (dimensi time-series) |
-| route | VARCHAR(10) | Rute yang di-scrape |
-| status | VARCHAR(10) | RUNNING / COMPLETED / FAILED |
-| total_records | INTEGER | Jumlah record yang diambil |
-| total_errors | INTEGER | Jumlah error |
-
-### 2. `flight_fares` — Data Primer
-
-| Kolom | Tipe | Deskripsi |
-|-------|------|-----------|
-| run_id | FK | Link ke scrape_runs |
-| route | VARCHAR(10) | Rute, e.g. "BTH-CGK" |
-| airline | VARCHAR(50) | Nama maskapai |
-| source | VARCHAR(30) | garuda_api / citilink_api / bookcabin_api |
-| travel_date | DATE | Tanggal terbang |
-| flight_number | VARCHAR(10) | Nomor penerbangan |
-| depart_time | VARCHAR(5) | Jam berangkat |
-| arrive_time | VARCHAR(5) | Jam tiba |
-| basic_fare | DECIMAL | Harga |
-| currency | VARCHAR(3) | IDR |
-| source_type | VARCHAR(15) | airline / bookcabin |
-| is_lowest_fare | BOOLEAN | Harga terendah per airline+tanggal |
-
-### 3. `fare_daily_summary` — Data Turunan
-
-| Kolom | Tipe | Deskripsi |
-|-------|------|-----------|
-| route | VARCHAR(10) | Rute |
-| airline | VARCHAR(50) | Maskapai |
-| travel_date | DATE | Tanggal terbang |
-| scrape_date | DATE | Tanggal pengamatan |
-| daily_min_price | DECIMAL | Harga min hari itu |
-| daily_avg_price | DECIMAL | Harga rata-rata |
-| daily_max_price | DECIMAL | Harga max |
-| price_change_dod | DECIMAL | Perubahan harga day-over-day |
-| volatility | FLOAT | Variasi harga |
-| cheapest_airline_per_day | VARCHAR | Maskapai termurah |
-
-## Project Structure
-
-```
-aero/
-├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── config.py            # Settings (from .env)
-│   ├── database.py          # SQLAlchemy engine & session
-│   ├── models/
-│   │   └── flight.py        # ScrapeRun, FlightFare, FareDailySummary
-│   ├── scrapers/
-│   │   ├── garuda.py
-│   │   ├── citilink.py
-│   │   └── bookcabin.py
-│   ├── schemas/
-│   │   └── flight.py        # Pydantic request/response models
-│   ├── services/
-│   │   ├── scraper_service.py   # Scraping + DB save + summary
-│   │   └── export_service.py    # XLSX triangle export
-│   └── routers/
-│       └── flights.py       # API endpoints
-├── .env.example
-├── requirements.txt
-└── README.md
-```
-
-## Catatan
-
-### Citilink JWT Token
-
-Citilink API butuh JWT token dari browser:
-1. Buka `https://book2.citilink.co.id/`
-2. DevTools (`F12`) → **Network** → cari request ke `availability/search/ssr`
-3. Copy `Authorization: Bearer <token>`
-4. Update `CITILINK_TOKEN` di `.env`
-
-### XLSX Triangle Format
-
-Export menghasilkan file Excel dengan format segitiga:
-- **Baris** = tanggal scrape (kapan data diambil)
-- **Kolom** = tanggal terbang
-- **Nilai** = harga termurah
-- **1 sheet** per maskapai
+| Rute | Maskapai |
+|------|----------|
+| BTH → CGK | Garuda, Citilink, Lion Air, Super Air Jet, Batik Air |
+| BTH → KNO | Lion Air |
+| BTH → SUB | Lion Air |
+| BTH → PDG | Lion Air |
+| TNJ → CGK | Garuda, Citilink, Batik Air |

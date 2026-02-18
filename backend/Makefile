@@ -1,13 +1,12 @@
 .PHONY: venv install run dev clean
 
+# Activate venv: .\.venv\Scripts\Activate.ps1
+
 # Buat virtual environment
 venv:
 	python -m venv .venv
 
-activate:
-	.venv/Scripts/activate
-
-# Install dependencies
+# Install dependencies (activate venv dulu!)
 install:
 	pip install -r requirements.txt
 
@@ -19,7 +18,7 @@ run:
 dev:
 	uvicorn app.main:app --reload --port 8000
 
-# Setup lengkap (venv + install + run)
+# Setup lengkap (venv + install)
 setup: venv
 	.venv\Scripts\pip install -r requirements.txt
 	@echo Setup selesai! Jalankan: make dev

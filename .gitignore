@@ -1,5 +1,5 @@
 # Virtual environment
-.venv/
+**/.venv/
 
 # Python cache
 __pycache__/
@@ -20,4 +20,8 @@ exports/
 # Test files
 test_*.py
 
-# Old flat files (sebelum FastAPI restructure)
+# Node
+node_modules/
+
+# Next.js
+.next/
