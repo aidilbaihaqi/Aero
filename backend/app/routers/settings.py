@@ -103,3 +103,43 @@ def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "ok", "updated": updated}
+
+
+@router.post("/validate-token")
+def validate_citilink_token(db: Session = Depends(get_db)):
+    """Test the stored Citilink token with a dummy API call."""
+    import requests
+
+    raw_token = _get_setting(db, "citilink_token", app_config.CITILINK_TOKEN)
+    if not raw_token:
+        return {"valid": False, "error": "No token configured"}
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {raw_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+            "Origin": "https://book2.citilink.co.id",
+            "Referer": "https://book2.citilink.co.id/",
+        }
+        payload = {
+            "criteria": [{"dates": {"beginDate": "2026-03-01"},
+                          "filters": {"bundleControlFilter": 2, "compressionType": 1, "exclusionType": 0, "maxConnections": 10, "productClasses": ["NR"]},
+                          "stations": {"originStationCodes": ["BTH"], "destinationStationCodes": ["CGK"], "searchDestinationMacs": True, "searchOriginMacs": True}}],
+            "codes": {"currencyCode": "IDR"}
+        }
+        resp = requests.post(
+            "https://dotrezapi-akm.prod.citilink.co.id/qg/dotrez/api/nsk/v1/availability/search/ssr",
+            headers=headers,
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code in (401, 403):
+            return {"valid": False, "error": f"Token rejected (HTTP {resp.status_code})"}
+        resp.raise_for_status()
+        return {"valid": True}
+    except requests.exceptions.Timeout:
+        return {"valid": False, "error": "Request timeout"}
+    except requests.exceptions.RequestException as e:
+        return {"valid": False, "error": str(e)}

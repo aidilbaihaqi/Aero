@@ -293,3 +293,42 @@ def search_flights(
         })
 
     return results
+
+
+@router.get("/errors")
+def error_stats(
+    days: int = Query(default=7, le=90),
+    db: Session = Depends(get_db),
+):
+    """Error rate per scraper source for the last N days."""
+    cutoff = date.today() - timedelta(days=days)
+
+    # Total per source
+    total_by_source = dict(
+        db.query(FlightFare.source, func.count(FlightFare.id))
+        .filter(FlightFare.travel_date >= cutoff)
+        .group_by(FlightFare.source)
+        .all()
+    )
+
+    # Errors per source
+    errors_by_source = dict(
+        db.query(FlightFare.source, func.count(FlightFare.id))
+        .filter(FlightFare.travel_date >= cutoff, FlightFare.status_scrape == "FAILED")
+        .group_by(FlightFare.source)
+        .all()
+    )
+
+    results = []
+    for source in ["garuda_api", "citilink_api", "bookcabin_api"]:
+        total = total_by_source.get(source, 0)
+        errors = errors_by_source.get(source, 0)
+        rate = (errors / total * 100) if total > 0 else 0
+        results.append({
+            "source": source,
+            "total": total,
+            "errors": errors,
+            "error_rate": round(rate, 1),
+        })
+
+    return results

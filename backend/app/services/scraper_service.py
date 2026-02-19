@@ -4,10 +4,13 @@ scraper_service.py — Orchestrate scraping dan simpan ke database (3-table stru
 
 import time
 import uuid
+import logging
 import statistics
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+import requests as req_lib
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -17,6 +20,16 @@ from app.models.notification import Notification
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
 from app.scrapers.citilink import scrape_citilink, URL_CITILINK
 from app.scrapers.bookcabin import scrape_bookcabin, URL_BOOKCABIN
+
+logger = logging.getLogger("aero.scraper")
+
+# --- Retry decorator ---
+_scrape_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception_type((req_lib.exceptions.RequestException, TimeoutError, ConnectionError)),
+    reraise=True,
+)
 
 
 def generate_dates(start: date, end: date) -> list[str]:
@@ -231,6 +244,7 @@ def scrape_and_save(
 
     all_records: list[dict] = []
     total_errors = 0
+    _citilink_token_expired = [False]  # mutable flag for closure
     stats = {
         "garuda_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
         "citilink_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
@@ -242,23 +256,30 @@ def scrape_and_save(
 
     def _scrape_garuda_safe(date_str):
         try:
-            flights = scrape_garuda(origin, destination, date_str)
+            flights = _scrape_retry(scrape_garuda)(origin, destination, date_str)
             return ("garuda_api", date_str, flights, None)
         except Exception as e:
+            logger.warning("Garuda scrape failed for %s: %s", date_str, e)
             return ("garuda_api", date_str, [], str(e))
 
     def _scrape_citilink_safe(date_str):
         try:
-            flights = scrape_citilink(origin, destination, date_str, token)
+            flights = _scrape_retry(scrape_citilink)(origin, destination, date_str, token)
             return ("citilink_api", date_str, flights, None)
         except Exception as e:
-            return ("citilink_api", date_str, [], str(e))
+            err_str = str(e)
+            logger.warning("Citilink scrape failed for %s: %s", date_str, e)
+            # Task 13: Detect token expiry
+            if "401" in err_str or "403" in err_str or "Unauthorized" in err_str:
+                _citilink_token_expired[0] = True
+            return ("citilink_api", date_str, [], err_str)
 
     def _scrape_bookcabin_safe(date_str):
         try:
-            flights = scrape_bookcabin(origin, destination, date_str)
+            flights = _scrape_retry(scrape_bookcabin)(origin, destination, date_str)
             return ("bookcabin_api", date_str, flights, None)
         except Exception as e:
+            logger.warning("BookCabin scrape failed for %s: %s", date_str, e)
             return ("bookcabin_api", date_str, [], str(e))
 
     normalizers = {
@@ -346,6 +367,25 @@ def scrape_and_save(
             message=f"Selesai dengan {total_errors} error. Berhasil mengambil {len(all_records)} data penerbangan.",
             route=route
         ))
+
+    # 8. NOTIFICATION: Citilink token expired
+    if _citilink_token_expired[0]:
+        db.add(Notification(
+            type="warning",
+            title="Citilink Token Expired",
+            message="Token Citilink tidak valid. Silakan update token di halaman Pengaturan.",
+        ))
+
+    # 9. NOTIFICATION: High error rate alert (> 50%)
+    total_attempts = len(dates) * 3  # 3 scrapers per date
+    if total_attempts > 0 and (total_errors / total_attempts) > 0.5:
+        db.add(Notification(
+            type="system",
+            title=f"Error Rate Tinggi: {route}",
+            message=f"Error rate {(total_errors/total_attempts)*100:.0f}% ({total_errors}/{total_attempts}). Periksa koneksi atau konfigurasi scraper.",
+            route=route,
+        ))
+
     db.commit()
 
     return {
