@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.routers import flights, auth
+from app.routers import flights, auth, stats
 from app.models.user import User  # noqa: ensure users table is created
 
 
@@ -40,6 +40,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth.router)
 app.include_router(flights.router)
+app.include_router(stats.router)
 
 
 @app.get("/")

@@ -8,21 +8,33 @@ import {
     XAxis,
 } from "recharts";
 
-const data = [
-    { day: "Sen", price: 1200000 },
-    { day: "Sel", price: 1150000 },
-    { day: "Rab", price: 1300000 },
-    { day: "Kam", price: 1100000 },
-    { day: "Jum", price: 950000 },
-    { day: "Sab", price: 1050000 },
-    { day: "Min", price: 1250000 },
+interface ChartDataPoint {
+    day: string;
+    date?: string;
+    price: number;
+}
+
+interface PriceTrendChartProps {
+    data?: ChartDataPoint[];
+}
+
+const defaultData: ChartDataPoint[] = [
+    { day: "Sen", price: 0 },
+    { day: "Sel", price: 0 },
+    { day: "Rab", price: 0 },
+    { day: "Kam", price: 0 },
+    { day: "Jum", price: 0 },
+    { day: "Sab", price: 0 },
+    { day: "Min", price: 0 },
 ];
 
-export function PriceTrendChart() {
+export function PriceTrendChart({ data }: PriceTrendChartProps) {
+    const chartData = data && data.length > 0 ? data : defaultData;
+
     return (
         <div className="h-[200px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data}>
+                <AreaChart data={chartData}>
                     <defs>
                         <linearGradient
                             id="colorPrice"

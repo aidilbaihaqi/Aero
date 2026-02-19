@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
     CardSolid,
     CardSolidContent,
@@ -13,132 +14,77 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { Plane, Map, Activity, AlertCircle } from "lucide-react";
+import { Plane, Map, Activity, AlertCircle, Loader2 } from "lucide-react";
+import api from "@/lib/axios";
+import { flightRoutes } from "@/lib/export-excel";
 
-const routesData = [
-    {
-        id: 1,
-        sheetName: "GIA-BTMJKT",
-        origin: "BTH",
-        dest: "CGK",
-        airline: "Garuda Indonesia",
-        flight: "GA-168",
-        departTime: "08:00",
-        arriveTime: "09:25",
-        lastPrice: "Rp 1.450.000",
-        status: "Active",
-    },
-    {
-        id: 2,
-        sheetName: "GIA-TNJKT",
-        origin: "TNJ",
-        dest: "CGK",
-        airline: "Garuda Indonesia",
-        flight: "GA-287",
-        departTime: "15:00",
-        arriveTime: "16:30",
-        lastPrice: "Rp 1.350.000",
-        status: "Active",
-    },
-    {
-        id: 3,
-        sheetName: "CITILINK-BTMJKT",
-        origin: "BTH",
-        dest: "CGK",
-        airline: "Citilink",
-        flight: "QG-712",
-        departTime: "09:30",
-        arriveTime: "10:55",
-        lastPrice: "Rp 650.000",
-        status: "Active",
-    },
-    {
-        id: 4,
-        sheetName: "CITILINK-TNJKT",
-        origin: "TNJ",
-        dest: "CGK",
-        airline: "Citilink",
-        flight: "QG-821",
-        departTime: "12:00",
-        arriveTime: "13:30",
-        lastPrice: "Rp 720.000",
-        status: "Active",
-    },
-    {
-        id: 5,
-        sheetName: "LION-BTMJKT",
-        origin: "BTH",
-        dest: "CGK",
-        airline: "Lion Air",
-        flight: "JT-374",
-        departTime: "10:00",
-        arriveTime: "11:25",
-        lastPrice: "Rp 680.000",
-        status: "Active",
-    },
-    {
-        id: 6,
-        sheetName: "LION-BTMKNO",
-        origin: "BTH",
-        dest: "KNO",
-        airline: "Lion Air",
-        flight: "JT-971",
-        departTime: "09:50",
-        arriveTime: "11:15",
-        lastPrice: "Rp 750.000",
-        status: "Active",
-    },
-    {
-        id: 7,
-        sheetName: "LION-BTMSBY",
-        origin: "BTH",
-        dest: "SUB",
-        airline: "Lion Air",
-        flight: "JT-948",
-        departTime: "14:00",
-        arriveTime: "16:30",
-        lastPrice: "Rp 1.100.000",
-        status: "Active",
-    },
-    {
-        id: 8,
-        sheetName: "LION-BTMPDG",
-        origin: "BTH",
-        dest: "PDG",
-        airline: "Lion Air",
-        flight: "JT-265",
-        departTime: "11:30",
-        arriveTime: "12:45",
-        lastPrice: "Rp 850.000",
-        status: "Active",
-    },
-    {
-        id: 9,
-        sheetName: "AIRJET-BTMJKT",
-        origin: "BTH",
-        dest: "CGK",
-        airline: "Super Air Jet",
-        flight: "IU-854",
-        departTime: "07:00",
-        arriveTime: "08:25",
-        lastPrice: "Rp 550.000",
-        status: "Active",
-    },
-    {
-        id: 10,
-        sheetName: "BATIK-TNJKT",
-        origin: "TNJ",
-        dest: "CGK",
-        airline: "Batik Air",
-        flight: "ID-6863",
-        departTime: "10:00",
-        arriveTime: "11:30",
-        lastPrice: "Rp 950.000",
-        status: "Warning",
-    },
-];
+interface FlightFare {
+    id: number;
+    route: string;
+    airline: string;
+    flight_number: string;
+    travel_date: string;
+    depart_time: string;
+    arrive_time: string;
+    basic_fare: number;
+    status_scrape: string;
+}
+
+const formatPrice = (price: number) => `Rp ${price.toLocaleString("id-ID")}`;
 
 export default function Routes() {
+    const [loading, setLoading] = useState(true);
+    const [latestFares, setLatestFares] = useState<Record<string, FlightFare>>({});
+
+    useEffect(() => {
+        fetchRoutes();
+    }, []);
+
+    const fetchRoutes = async () => {
+        setLoading(true);
+        try {
+            const res = await api.get("/api/flights/history", {
+                params: { limit: 500 },
+            });
+            // Group by sheetName-like key (airline+route), keep only the latest/cheapest
+            const faresMap: Record<string, FlightFare> = {};
+            for (const fare of res.data as FlightFare[]) {
+                // Build a key matching flightRoutes config
+                const match = flightRoutes.find(
+                    (r) => r.route === fare.route && fare.airline.includes(r.airline.split(" ")[0])
+                );
+                const key = match?.sheetName || `${fare.airline}-${fare.route}`;
+                if (!faresMap[key] || fare.basic_fare < faresMap[key].basic_fare) {
+                    faresMap[key] = fare;
+                }
+            }
+            setLatestFares(faresMap);
+        } catch (err) {
+            console.error("Failed to fetch routes", err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Build display data: merge flightRoutes config with latest prices
+    const routesData = flightRoutes.map((r) => {
+        const fare = latestFares[r.sheetName];
+        return {
+            sheetName: r.sheetName,
+            origin: r.route.split("-")[0],
+            dest: r.route.split("-")[1],
+            airline: r.airline,
+            flight: r.flightNumber,
+            departTime: r.departureTime,
+            arriveTime: r.arrivalTime,
+            lastPrice: fare ? formatPrice(fare.basic_fare) : "—",
+            status: fare ? "Active" : "Inactive",
+        };
+    });
+
+    const activeCount = routesData.filter((r) => r.status === "Active").length;
+    const inactiveCount = routesData.filter((r) => r.status === "Inactive").length;
+
     return (
         <>
             <div className="mb-6">
@@ -156,11 +102,9 @@ export default function Routes() {
                             <Map className="h-6 w-6" />
                         </div>
                         <div>
-                            <div className="text-sm text-neutral-400">
-                                Total Rute
-                            </div>
+                            <div className="text-sm text-neutral-400">Total Rute</div>
                             <div className="text-2xl font-display font-bold">
-                                10
+                                {loading ? "—" : routesData.length}
                             </div>
                         </div>
                     </CardSolidContent>
@@ -171,11 +115,9 @@ export default function Routes() {
                             <Activity className="h-6 w-6" />
                         </div>
                         <div>
-                            <div className="text-sm text-neutral-400">
-                                Aktif Dipantau
-                            </div>
+                            <div className="text-sm text-neutral-400">Ada Data</div>
                             <div className="text-2xl font-display font-bold text-green-400">
-                                9
+                                {loading ? "—" : activeCount}
                             </div>
                         </div>
                     </CardSolidContent>
@@ -186,11 +128,9 @@ export default function Routes() {
                             <AlertCircle className="h-6 w-6" />
                         </div>
                         <div>
-                            <div className="text-sm text-neutral-400">
-                                Bermasalah
-                            </div>
+                            <div className="text-sm text-neutral-400">Belum Ada Data</div>
                             <div className="text-2xl font-display font-bold text-orange-400">
-                                1
+                                {loading ? "—" : inactiveCount}
                             </div>
                         </div>
                     </CardSolidContent>
@@ -211,64 +151,61 @@ export default function Routes() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {routesData.map((route) => (
-                            <TableRow key={route.id} className="group">
-                                <TableCell className="font-mono text-xs text-neutral-500">
-                                    {route.sheetName}
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500">
-                                            <Plane className="h-4 w-4" />
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-sm">
-                                                {route.origin}{" "}
-                                                <span className="text-neutral-300 mx-1">
-                                                    →
-                                                </span>{" "}
-                                                {route.dest}
-                                            </div>
-                                            <div className="text-[10px] text-neutral-400">
-                                                Penerbangan Langsung
-                                            </div>
-                                        </div>
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="font-medium text-sm">
-                                        {route.airline}
-                                    </div>
-                                    <div className="text-xs text-neutral-500">
-                                        {route.flight}
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-sm text-neutral-600">
-                                    {route.departTime} - {route.arriveTime}
-                                </TableCell>
-                                <TableCell className="font-mono font-bold text-sm">
-                                    {route.lastPrice}
-                                </TableCell>
-                                <TableCell>
-                                    <Badge
-                                        variant="secondary"
-                                        className={
-                                            route.status === "Active"
-                                                ? "bg-green-100 text-green-700 hover:bg-green-100 border-none"
-                                                : route.status === "Inactive"
-                                                    ? "bg-neutral-100 text-neutral-500 hover:bg-neutral-100 border-none"
-                                                    : "bg-orange-100 text-orange-700 hover:bg-orange-100 border-none"
-                                        }
-                                    >
-                                        {route.status === "Active"
-                                            ? "Aktif"
-                                            : route.status === "Warning"
-                                                ? "Peringatan"
-                                                : "Nonaktif"}
-                                    </Badge>
+                        {loading ? (
+                            <TableRow>
+                                <TableCell colSpan={6} className="text-center py-8 text-neutral-400">
+                                    <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                                    Memuat data...
                                 </TableCell>
                             </TableRow>
-                        ))}
+                        ) : (
+                            routesData.map((route) => (
+                                <TableRow key={route.sheetName} className="group">
+                                    <TableCell className="font-mono text-xs text-neutral-500">
+                                        {route.sheetName}
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500">
+                                                <Plane className="h-4 w-4" />
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-sm">
+                                                    {route.origin}{" "}
+                                                    <span className="text-neutral-300 mx-1">→</span>{" "}
+                                                    {route.dest}
+                                                </div>
+                                                <div className="text-[10px] text-neutral-400">
+                                                    Penerbangan Langsung
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="font-medium text-sm">{route.airline}</div>
+                                        <div className="text-xs text-neutral-500">{route.flight}</div>
+                                    </TableCell>
+                                    <TableCell className="text-sm text-neutral-600">
+                                        {route.departTime} - {route.arriveTime}
+                                    </TableCell>
+                                    <TableCell className="font-mono font-bold text-sm">
+                                        {route.lastPrice}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant="secondary"
+                                            className={
+                                                route.status === "Active"
+                                                    ? "bg-green-100 text-green-700 hover:bg-green-100 border-none"
+                                                    : "bg-neutral-100 text-neutral-500 hover:bg-neutral-100 border-none"
+                                            }
+                                        >
+                                            {route.status === "Active" ? "Aktif" : "Belum Ada Data"}
+                                        </Badge>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
                     </TableBody>
                 </Table>
             </div>
