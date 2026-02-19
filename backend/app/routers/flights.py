@@ -18,6 +18,8 @@ from app.schemas.flight import (
 )
 from app.services.scraper_service import scrape_and_save
 from app.services.export_service import export_triangle_xlsx
+from app.services.auth_service import get_current_user
+from app.models.user import User
 from app.config import settings
 
 router = APIRouter(prefix="/api/flights", tags=["Flights"])
@@ -42,15 +44,15 @@ def search_flights(
 
 
 @router.post("/bulk", response_model=ScrapeResponse)
-def bulk_scrape(req: ScrapeRequest, db: Session = Depends(get_db)):
-    """Scrape penerbangan untuk 1 rute, range tanggal."""
+def bulk_scrape(req: ScrapeRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """Scrape penerbangan untuk 1 rute, range tanggal. (Protected)"""
     return scrape_and_save(db=db, origin=req.origin, destination=req.destination,
                            start_date=req.start_date, end_date=req.end_date,
                            citilink_token=req.citilink_token, run_type=req.run_type)
 
 
 @router.post("/bulk-routes", response_model=BulkRoutesResponse)
-def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db)):
+def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     """Scrape beberapa rute sekaligus.
     
     Jika `routes` kosong, pakai DEFAULT_ROUTES dari config:
@@ -89,7 +91,7 @@ def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db)):
 # =============================================
 
 @router.post("/export")
-def export_xlsx(req: ExportRequest, db: Session = Depends(get_db)):
+def export_xlsx(req: ExportRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     """Export data dari DB ke XLSX format segitiga."""
     filepath = export_triangle_xlsx(db=db, origin=req.origin, destination=req.destination,
                                      start_date=req.start_date, end_date=req.end_date,

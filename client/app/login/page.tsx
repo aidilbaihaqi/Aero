@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import GuestLayout from "@/components/layout/guest-layout";
 import { toast } from "sonner"; // Using sonner for toasts
+import api from "@/lib/axios";
+import { setToken, setUser } from "@/lib/auth";
 
 export default function Login() {
     const router = useRouter();
@@ -48,18 +50,15 @@ export default function Login() {
         setLoading(true);
 
         try {
-            // Mock API call
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const res = await api.post("/api/auth/login", {
+                email: formData.email,
+                password: formData.password,
+                remember_me: formData.remember,
+            });
 
-            // Save to localStorage
-            localStorage.setItem(
-                "user",
-                JSON.stringify({
-                    email: formData.email,
-                    name: formData.email.split("@")[0],
-                    authenticated: true,
-                })
-            );
+            // Save access token + user
+            setToken(res.data.access_token);
+            setUser(res.data.user);
 
             toast.success("Login Berhasil", {
                 description: "Mengalihkan ke dashboard...",
@@ -67,12 +66,15 @@ export default function Login() {
 
             // Redirect to dashboard
             router.push("/dashboard");
-        } catch (error) {
-            setErrors({ email: "Gagal masuk, silakan coba lagi." });
+        } catch (error: any) {
+            const msg =
+                error.response?.data?.detail || "Gagal masuk, silakan coba lagi.";
+            setErrors({ email: msg });
         } finally {
             setLoading(false);
         }
     };
+
 
     return (
         <GuestLayout>

@@ -25,6 +25,13 @@ class Settings(BaseSettings):
         {"origin": "TNJ", "destination": "CGK"},
     ]
 
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "aero-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    REFRESH_TOKEN_EXPIRE_DAYS_LONG: int = 30
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

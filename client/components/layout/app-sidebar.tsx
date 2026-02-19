@@ -11,15 +11,25 @@ import {
     Settings,
     LogOut,
     ChevronLeft,
+    X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
     isCollapsed?: boolean;
+    isMobileOpen?: boolean;
     onToggle?: () => void;
+    onMobileClose?: () => void;
+    onLogout?: () => void;
 }
 
-export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
+export function AppSidebar({
+    isCollapsed = false,
+    isMobileOpen = false,
+    onToggle,
+    onMobileClose,
+    onLogout,
+}: AppSidebarProps) {
     const pathname = usePathname();
 
     const navItems = [
@@ -33,14 +43,19 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
     return (
         <aside
             className={cn(
-                "fixed left-0 top-0 z-40 hidden h-screen flex-col border-r border-neutral-200 bg-white/80 shadow-sm backdrop-blur-xl transition-all duration-300 ease-in-out dark:border-neutral-800 dark:bg-black/80 lg:flex",
-                isCollapsed ? "w-[80px]" : "w-[260px]"
+                // Base styles
+                "fixed left-0 top-0 z-50 h-screen flex-col border-r border-neutral-200 bg-white/80 shadow-sm backdrop-blur-xl transition-all duration-300 ease-in-out dark:border-neutral-800 dark:bg-black/80",
+                // Desktop: always visible, collapsible width
+                "hidden lg:flex",
+                isCollapsed ? "lg:w-[80px]" : "lg:w-[260px]",
+                // Mobile: slide-in overlay
+                isMobileOpen && "!flex w-[280px]"
             )}
         >
-            {/* Floating Toggle Button */}
+            {/* Desktop: Floating Toggle Button */}
             <button
                 onClick={onToggle}
-                className="absolute -right-3 top-9 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 bg-white shadow-sm transition-colors hover:bg-neutral-100 hover:text-black dark:border-neutral-800 dark:bg-neutral-900"
+                className="absolute -right-3 top-9 z-50 hidden h-6 w-6 items-center justify-center rounded-full border border-neutral-200 bg-white shadow-sm transition-colors hover:bg-neutral-100 hover:text-black dark:border-neutral-800 dark:bg-neutral-900 lg:flex"
             >
                 <ChevronLeft
                     className={cn(
@@ -54,13 +69,13 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
             <div
                 className={cn(
                     "flex h-24 items-center px-6 transition-all",
-                    isCollapsed ? "justify-center" : "justify-between"
+                    isCollapsed && !isMobileOpen ? "justify-center" : "justify-between"
                 )}
             >
                 <div
                     className={cn(
                         "flex items-center",
-                        isCollapsed ? "gap-0" : "gap-3"
+                        isCollapsed && !isMobileOpen ? "gap-0" : "gap-3"
                     )}
                 >
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-black text-white dark:bg-white dark:text-black">
@@ -69,7 +84,7 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                     <div
                         className={cn(
                             "overflow-hidden transition-all duration-300",
-                            isCollapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+                            isCollapsed && !isMobileOpen ? "w-0 opacity-0" : "w-auto opacity-100"
                         )}
                     >
                         <span className="block font-display text-xl font-bold leading-none text-neutral-900 dark:text-white">
@@ -80,6 +95,16 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                         </span>
                     </div>
                 </div>
+
+                {/* Mobile: Close Button */}
+                {isMobileOpen && (
+                    <button
+                        onClick={onMobileClose}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-black dark:hover:bg-neutral-800 lg:hidden"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                )}
             </div>
 
             {/* Navigation Section */}
@@ -88,14 +113,16 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = pathname?.startsWith(item.href);
+                        const collapsed = isCollapsed && !isMobileOpen;
 
                         return (
                             <Link
                                 key={item.name}
                                 href={item.href}
+                                onClick={onMobileClose}
                                 className={cn(
                                     "flex items-center rounded-xl py-3.5 text-sm font-medium transition-all duration-300 relative group",
-                                    isCollapsed
+                                    collapsed
                                         ? "justify-center px-0 gap-0"
                                         : "px-4 gap-4",
                                     isActive
@@ -112,7 +139,7 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                                 <span
                                     className={cn(
                                         "overflow-hidden transition-all duration-300 whitespace-nowrap",
-                                        isCollapsed
+                                        collapsed
                                             ? "w-0 opacity-0"
                                             : "w-auto opacity-100"
                                     )}
@@ -121,7 +148,7 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                                 </span>
 
                                 {/* Tooltip for Collapsed State */}
-                                {isCollapsed && (
+                                {collapsed && (
                                     <div className="absolute left-full ml-2 hidden whitespace-nowrap rounded-md bg-black px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:block group-hover:opacity-100 pointer-events-none z-50">
                                         {item.name}
                                     </div>
@@ -135,9 +162,10 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                 <div className="space-y-2">
                     <Link
                         href="/settings"
+                        onClick={onMobileClose}
                         className={cn(
                             "flex items-center rounded-xl py-3.5 text-sm font-medium transition-colors",
-                            isCollapsed
+                            isCollapsed && !isMobileOpen
                                 ? "justify-center px-0 gap-0"
                                 : "px-4 gap-4",
                             pathname?.startsWith("/settings")
@@ -149,7 +177,7 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                         <span
                             className={cn(
                                 "overflow-hidden transition-all duration-300 whitespace-nowrap",
-                                isCollapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+                                isCollapsed && !isMobileOpen ? "w-0 opacity-0" : "w-auto opacity-100"
                             )}
                         >
                             Pengaturan
@@ -157,9 +185,10 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                     </Link>
 
                     <button
+                        onClick={onLogout}
                         className={cn(
                             "flex w-full items-center rounded-xl py-3.5 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20",
-                            isCollapsed
+                            isCollapsed && !isMobileOpen
                                 ? "justify-center px-0 gap-0"
                                 : "px-4 gap-4"
                         )}
@@ -168,7 +197,7 @@ export function AppSidebar({ isCollapsed = false, onToggle }: AppSidebarProps) {
                         <span
                             className={cn(
                                 "overflow-hidden transition-all duration-300 whitespace-nowrap",
-                                isCollapsed
+                                isCollapsed && !isMobileOpen
                                     ? "w-0 opacity-0"
                                     : "w-auto opacity-100"
                             )}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plane, Menu } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plane, Menu, LogOut, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -17,6 +18,8 @@ import {
 // New Components
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationPanel } from "@/components/notification-panel";
+import { getUser, clearAuth, type AuthUser } from "@/lib/auth";
+import api from "@/lib/axios";
 
 interface AppHeaderProps {
     onMobileMenuClick: () => void;
@@ -24,6 +27,32 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onMobileMenuClick, showSearch = true }: AppHeaderProps) {
+    const router = useRouter();
+    const [user, setUser] = useState<AuthUser | null>(null);
+
+    useEffect(() => {
+        setUser(getUser());
+    }, []);
+
+    const handleLogout = async () => {
+        try {
+            await api.post("/api/auth/logout");
+        } catch {
+            // Even if API fails, still clear local state
+        }
+        clearAuth();
+        router.push("/login");
+    };
+
+    const displayName = user?.name || "User";
+    const displayEmail = user?.email || "";
+    const initials = displayName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2);
+
     return (
         <header className="sticky top-0 z-30 flex h-24 items-center justify-between px-6 lg:px-10 bg-transparent">
             {/* Mobile Logo & Toggle (< lg) */}
@@ -63,24 +92,31 @@ export function AppHeader({ onMobileMenuClick, showSearch = true }: AppHeaderPro
                 <div className="h-8 w-px bg-neutral-200 lg:block hidden dark:bg-neutral-700"></div>
                 <div className="flex items-center gap-3">
                     <div className="hidden text-right lg:block">
-                        <div className="font-bold text-sm">Admin</div>
-                        <div className="text-xs text-neutral-500">admin@aeroprice.com</div>
+                        <div className="font-bold text-sm">{displayName}</div>
+                        <div className="text-xs text-neutral-500">{displayEmail}</div>
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Avatar className="cursor-pointer hover:opacity-80 transition-opacity">
-                                <AvatarImage src="https://github.com/shadcn.png" />
-                                <AvatarFallback>AD</AvatarFallback>
+                                <AvatarImage src="" />
+                                <AvatarFallback>{initials}</AvatarFallback>
                             </Avatar>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Akun Saya</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>
-                                <Link href="/settings" className="w-full">Pengaturan</Link>
+                                <Link href="/settings" className="w-full flex items-center gap-2">
+                                    <Settings className="h-4 w-4" />
+                                    Pengaturan
+                                </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-500 focus:text-red-500">
-                                <Link href="/login" className="w-full">Keluar</Link>
+                            <DropdownMenuItem
+                                className="text-red-500 focus:text-red-500 cursor-pointer"
+                                onSelect={handleLogout}
+                            >
+                                <LogOut className="h-4 w-4 mr-2" />
+                                Keluar
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
