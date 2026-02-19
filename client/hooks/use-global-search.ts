@@ -1,5 +1,7 @@
-import { useState, useRef, KeyboardEvent, useMemo } from 'react';
+import { useState, useRef, KeyboardEvent, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useDebounce } from 'use-debounce';
+import api from '@/lib/axios';
 
 export interface SearchResultItem {
     id: string;
@@ -13,40 +15,58 @@ export interface GroupedResults {
     [key: string]: SearchResultItem[];
 }
 
-const mockData: SearchResultItem[] = [
-    // Pages
+const staticPages: SearchResultItem[] = [
     { id: 'p1', type: 'page', title: 'Dashboard', url: '/dashboard' },
     { id: 'p2', type: 'page', title: 'Analisis', url: '/analytics' },
     { id: 'p3', type: 'page', title: 'Riwayat', url: '/history' },
     { id: 'p4', type: 'page', title: 'Ekspor Data', url: '/export' },
     { id: 'p5', type: 'page', title: 'Pengaturan', url: '/settings' },
-
-    // Routes
-    { id: 'r1', type: 'route', title: 'BTH - CGK', subtitle: 'Batam ke Jakarta', url: '/dashboard?route=BTH-CGK' },
-    { id: 'r2', type: 'route', title: 'TNJ - CGK', subtitle: 'Tanjung Pinang ke Jakarta', url: '/dashboard?route=TNJ-CGK' },
-    { id: 'r3', type: 'route', title: 'BTH - KNO', subtitle: 'Batam ke Medan', url: '/dashboard?route=BTH-KNO' },
-
-    // Airlines
-    { id: 'a1', type: 'airline', title: 'Garuda Indonesia', subtitle: 'Maskapai', url: '/analytics?airline=garuda' },
-    { id: 'a2', type: 'airline', title: 'Lion Air', subtitle: 'Maskapai', url: '/analytics?airline=lion' },
-    { id: 'a3', type: 'airline', title: 'Citilink', subtitle: 'Maskapai', url: '/analytics?airline=citilink' },
 ];
 
 export function useGlobalSearch() {
     const [query, setQuery] = useState('');
+    const [debouncedQuery] = useDebounce(query, 300);
     const [isOpen, setIsOpen] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(0);
+    const [apiResults, setApiResults] = useState<SearchResultItem[]>([]);
+    const [loading, setLoading] = useState(false);
+
     const inputRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
 
+    useEffect(() => {
+        if (!debouncedQuery.trim()) {
+            setApiResults([]);
+            return;
+        }
+
+        const fetchResults = async () => {
+            setLoading(true);
+            try {
+                const res = await api.get('/api/stats/search', {
+                    params: { q: debouncedQuery }
+                });
+                setApiResults(res.data);
+            } catch (err) {
+                console.error("Search failed", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchResults();
+    }, [debouncedQuery]);
+
     const results = useMemo(() => {
         if (!query.trim()) return [];
+
         const lowerQuery = query.toLowerCase();
-        return mockData.filter(item =>
-            item.title.toLowerCase().includes(lowerQuery) ||
-            item.subtitle?.toLowerCase().includes(lowerQuery)
+        const filteredPages = staticPages.filter(item =>
+            item.title.toLowerCase().includes(lowerQuery)
         );
-    }, [query]);
+
+        return [...filteredPages, ...apiResults];
+    }, [query, apiResults]);
 
     const hasResults = results.length > 0;
 
@@ -94,6 +114,7 @@ export function useGlobalSearch() {
         selectedIndex,
         handleKeyDown,
         navigateToItem,
-        inputRef
+        inputRef,
+        loading
     };
 }

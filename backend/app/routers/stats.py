@@ -229,3 +229,67 @@ def analytics_stats(
         "price_trend": price_trend,
         "airline_comparison": airline_comparison,
     }
+
+
+@router.get("/search")
+def search_flights(
+    q: str = Query(..., min_length=2),
+    db: Session = Depends(get_db),
+):
+    """Search for routes, airlines, or flights."""
+    query = q.lower()
+    results = []
+
+    # 1. Search Routes
+    routes = (
+        db.query(distinct(FlightFare.route))
+        .filter(FlightFare.route.ilike(f"%{query}%"))
+        .limit(5)
+        .all()
+    )
+    for r in routes:
+        route_code = r[0]
+        origin, dest = route_code.split("-") if "-" in route_code else (route_code, "")
+        results.append({
+            "id": f"route-{route_code}",
+            "type": "route",
+            "title": route_code.replace("-", " → "),
+            "subtitle": "Rute Penerbangan",
+            "url": f"/dashboard?route={route_code}",
+        })
+
+    # 2. Search Airlines
+    airlines = (
+        db.query(distinct(FlightFare.airline))
+        .filter(FlightFare.airline.ilike(f"%{query}%"))
+        .limit(5)
+        .all()
+    )
+    for a in airlines:
+        airline_name = a[0]
+        results.append({
+            "id": f"airline-{airline_name}",
+            "type": "airline",
+            "title": airline_name,
+            "subtitle": "Maskapai",
+            "url": f"/analytics?airline={airline_name.lower()}",
+        })
+
+    # 3. Search Flight Numbers
+    flights = (
+        db.query(distinct(FlightFare.flight_number), FlightFare.airline, FlightFare.route)
+        .filter(FlightFare.flight_number.ilike(f"%{query}%"))
+        .limit(5)
+        .all()
+    )
+    for f in flights:
+        f_num, f_airline, f_route = f
+        results.append({
+            "id": f"flight-{f_num}",
+            "type": "flight",
+            "title": f_num,
+            "subtitle": f"{f_airline} • {f_route}",
+            "url": f"/dashboard?search={f_num}",
+        })
+
+    return results

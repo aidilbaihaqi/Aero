@@ -1,82 +1,100 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Notification } from '@/lib/notifications';
-
-const initialNotifications: Notification[] = [
-    {
-        id: '1',
-        type: 'price_alert',
-        title: 'Harga Turun: BTH - CGK',
-        message: 'Tiket Lion Air turun drastis menjadi Rp 550.000. Cek sekarang sebelum harga naik lagi!',
-        timestamp: new Date(Date.now() - 1000 * 60 * 10), // 10 mins ago
-        read: false,
-        route: 'BTH-CGK',
-        priceChange: -15,
-        actionUrl: '/dashboard',
-    },
-    {
-        id: '2',
-        type: 'success',
-        title: 'Scraping Selesai',
-        message: 'Proses pengambilan data harga tiket berhasil diselesaikan. 156 penerbangan baru ditemukan.',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60), // 1 hour ago
-        read: false,
-    },
-    {
-        id: '3',
-        type: 'warning',
-        title: 'Koneksi Lambat',
-        message: 'Beberapa request ke maskapai mengalami latency tinggi. Retrying otomatis aktif.',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-        read: true,
-    },
-    {
-        id: '4',
-        type: 'price_alert',
-        title: 'Harga Naik: TNJ - CGK',
-        message: 'Tiket Garuda Indonesia naik menjadi Rp 1.450.000 untuk penerbangan besok.',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-        read: true,
-        route: 'TNJ-CGK',
-        priceChange: 12,
-    },
-];
+import api from "@/lib/axios";
+import { toast } from "sonner";
 
 export function useNotifications() {
-    const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchNotifications = async () => {
+        try {
+            const res = await api.get("/api/notifications");
+            // Normalize dates
+            const normalized = res.data.map((n: any) => ({
+                ...n,
+                timestamp: new Date(n.created_at)
+            }));
+            setNotifications(normalized);
+        } catch (err) {
+            console.error("Failed to fetch notifications", err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchNotifications();
+        // Poll every 30 seconds
+        const interval = setInterval(fetchNotifications, 30000);
+        return () => clearInterval(interval);
+    }, []);
 
     const unreadCount = notifications.filter((n) => !n.read).length;
 
-    const markAsRead = (id: string) => {
+    const markAsRead = async (id: string) => {
+        // Optimistic update
         setNotifications((prev) =>
-            prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+            prev.map((n) => (String(n.id) === id ? { ...n, read: true } : n))
         );
+        try {
+            await api.patch(`/api/notifications/${id}/read`);
+        } catch {
+            // Revert on fail? Nah, just log
+            console.error("Failed to mark as read");
+        }
     };
 
-    const markAsUnread = (id: string) => {
+    const markAsUnread = async (id: string) => {
         setNotifications((prev) =>
-            prev.map((n) => (n.id === id ? { ...n, read: false } : n))
+            prev.map((n) => (String(n.id) === id ? { ...n, read: false } : n))
         );
+        try {
+            await api.patch(`/api/notifications/${id}/unread`);
+        } catch {
+            console.error("Failed to mark as unread");
+        }
     };
 
-    const markAllAsRead = () => {
+    const markAllAsRead = async () => {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        try {
+            await api.patch("/api/notifications/read-all");
+            toast.success("Semua notifikasi ditandai sudah dibaca");
+        } catch {
+            console.error("Failed to mark all as read");
+        }
     };
 
-    const deleteNotification = (id: string) => {
-        setNotifications((prev) => prev.filter((n) => n.id !== id));
+    const deleteNotification = async (id: string) => {
+        setNotifications((prev) => prev.filter((n) => String(n.id) !== id));
+        try {
+            await api.delete(`/api/notifications/${id}`);
+            toast.success("Notifikasi dihapus");
+        } catch {
+            console.error("Failed to delete notification");
+        }
     };
 
-    const clearAll = () => {
+    const clearAll = async () => {
         setNotifications([]);
+        try {
+            await api.delete("/api/notifications/all");
+            toast.success("Semua notifikasi dihapus");
+        } catch {
+            console.error("Failed to clear notifications");
+        }
     };
 
     return {
         notifications,
         unreadCount,
+        loading,
         markAsRead,
         markAsUnread,
         markAllAsRead,
         deleteNotification,
         clearAll,
+        refresh: fetchNotifications,
     };
 }

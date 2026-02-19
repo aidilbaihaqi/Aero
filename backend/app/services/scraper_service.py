@@ -13,6 +13,7 @@ from sqlalchemy import func
 
 from app.config import settings
 from app.models.flight import ScrapeRun, FlightFare, FareDailySummary
+from app.models.notification import Notification
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
 from app.scrapers.citilink import scrape_citilink, URL_CITILINK
 from app.scrapers.bookcabin import scrape_bookcabin, URL_BOOKCABIN
@@ -178,6 +179,21 @@ def _compute_daily_summary(db: Session, run_id: str, route: str, scrape_dt: date
         )
         db.add(summary)
 
+        # GENERATE NOTIFICATION: Price Alert if drop > 5% and min_price > 0
+        if dod and daily_min > 0:
+            prev_price = float(prev_summary.daily_min_price)
+            drop_percent = (float(abs(dod)) / prev_price) * 100
+            if dod < 0 and drop_percent > 5:
+                # Create notification
+                notif = Notification(
+                    type="price_alert",
+                    title=f"Harga Turun: {route} ({airline})",
+                    message=f"Tiket {airline} untuk {travel_dt.strftime('%d %b')} turun {drop_percent:.1f}% menjadi Rp {daily_min:,.0f}",
+                    route=route,
+                    price_change=float(dod),
+                )
+                db.add(notif)
+
     db.commit()
 
 
@@ -314,6 +330,23 @@ def scrape_and_save(
 
     # 6. Compute daily summary (data turunan)
     _compute_daily_summary(db, run_id, route, scrape_dt)
+
+    # 7. NOTIFICATION: Scrape Completion
+    if total_errors == 0:
+        db.add(Notification(
+            type="success",
+            title=f"Scraping Selesai: {route}",
+            message=f"Berhasil mengambil data {len(all_records)} penerbangan untuk rute {route}.",
+            route=route
+        ))
+    else:
+        db.add(Notification(
+            type="warning",
+            title=f"Scraping Selesai (Sebagian): {route}",
+            message=f"Selesai dengan {total_errors} error. Berhasil mengambil {len(all_records)} data penerbangan.",
+            route=route
+        ))
+    db.commit()
 
     return {
         "run_id": run_id,
