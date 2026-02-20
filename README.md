@@ -79,50 +79,69 @@ aero/
 
 ---
 
-## 🚀 Panduan Instalasi
+## 🚀 Panduan Instalasi (Docker)
 
-### Prasyarat
-- Python 3.11+
-- Node.js 18+ / Bun
-- PostgreSQL Database
+Jika Anda memiliki Docker Desktop, cara termudah adalah menggunakan Docker Compose:
 
-### 1. Setup Backend
+```bash
+docker-compose up --build
+```
+Aplikasi akan tersedia di:
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000`
 
+---
+
+## 🛠️ Panduan Instalasi Manual (Tanpa Docker)
+
+Gunakan panduan ini jika Anda ingin menjalankan aplikasi langsung di sistem lokal Anda.
+
+### 1. Prasyarat
+- **Python 3.11+**
+- **Node.js 20+** atau **Bun**
+- **PostgreSQL 15+**
+
+### 2. Persiapan Database
+1. Buka PostgreSQL (pgAdmin atau psql).
+2. Buat database baru bernama `aero`:
+   ```sql
+   CREATE DATABASE aero;
+   ```
+
+### 3. Setup Backend
 ```bash
 cd backend
 
-# Buat virtual environment
+# 1. Buat virtual environment
 python -m venv .venv
 
-# Activate venv (Windows)
+# 2. Aktifkan venv (Windows PowerShell)
 .\.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Setup Environment (.env)
+# 4. Konfigurasi Environment
 cp .env.example .env
-# Edit .env dan sesuaikan DATABASE_URL
-
-# Jalankan Server
-make dev
-# Server berjalan di http://localhost:8000
+# Edit .env dan sesuaikan DATABASE_URL:
+# DATABASE_URL=postgresql://postgres:password@localhost:5432/aero
 ```
 
-### 2. Setup Frontend
-
+### 4. Setup Frontend
 ```bash
 cd client
 
-# Install dependencies
+# 1. Install dependencies
 bun install  # atau npm install
 
-# Jalankan Development Server
+# 2. Jalankan server development
 bun dev      # atau npm run dev
-
-# Buka browser
-# http://localhost:3000
 ```
+
+### 5. Menjalankan Aplikasi
+1. **Backend**: Di terminal venv, jalankan `make dev` atau `uvicorn app.main:app --reload`.
+2. **Frontend**: Di terminal client, pastikan server development berjalan.
+3. Buka `http://localhost:3000`.
 
 ---
 
