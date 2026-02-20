@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, TokenResponse, UserOut
+from app.schemas.auth import LoginRequest, TokenResponse, UserOut, ChangePasswordRequest
 from app.services.auth_service import (
     verify_password,
+    hash_password,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -95,3 +96,29 @@ def logout(response: Response):
 def get_me(current_user: User = Depends(get_current_user)):
     """Return current authenticated user."""
     return current_user
+
+
+@router.patch("/password")
+def change_password(
+    req: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change current user's password."""
+    if not verify_password(req.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password lama salah",
+        )
+
+    if len(req.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password baru minimal 6 karakter",
+        )
+
+    current_user.hashed_password = hash_password(req.new_password)
+    db.commit()
+
+    return {"message": "Password berhasil diubah"}
+

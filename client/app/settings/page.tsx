@@ -34,6 +34,13 @@ export default function Settings() {
         db_total_runs: 0,
     });
 
+    const [passwordData, setPasswordData] = useState({
+        oldPassword: "",
+        newPassword: "",
+    });
+    const [changingPassword, setChangingPassword] = useState(false);
+
+
     useEffect(() => {
         fetchSettings();
     }, []);
@@ -82,7 +89,33 @@ export default function Settings() {
         }
     };
 
+    const handlePasswordChange = async () => {
+        if (!passwordData.oldPassword || !passwordData.newPassword) {
+            toast.error("Mohon isi semua field password");
+            return;
+        }
+        if (passwordData.newPassword.length < 6) {
+            toast.error("Password minimal 6 karakter");
+            return;
+        }
+
+        setChangingPassword(true);
+        try {
+            await api.patch("/api/auth/password", {
+                old_password: passwordData.oldPassword,
+                new_password: passwordData.newPassword,
+            });
+            toast.success("Password berhasil diubah!");
+            setPasswordData({ oldPassword: "", newPassword: "" });
+        } catch (err: any) {
+            toast.error(err.response?.data?.detail || "Gagal mengubah password");
+        } finally {
+            setChangingPassword(false);
+        }
+    };
+
     if (loading) {
+
         return (
             <div className="flex items-center justify-center h-[50vh]">
                 <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
@@ -98,25 +131,44 @@ export default function Settings() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                {/* Notification Settings (Mock for now, strictly client side preference usually) */}
+                {/* Security Settings */}
                 <div className="rounded-2xl bg-white p-6 shadow-sm border border-neutral-100 dark:bg-neutral-900 dark:border-neutral-800">
                     <div className="flex items-center gap-3 mb-6">
                         <div className="p-3 rounded-xl bg-neutral-100 dark:bg-neutral-800">
-                            <Bell className="h-5 w-5 text-neutral-700 dark:text-neutral-300" />
+                            <SettingsIcon className="h-5 w-5 text-neutral-700 dark:text-neutral-300" />
                         </div>
                         <div>
-                            <h3 className="font-display font-bold">Notifikasi</h3>
-                            <p className="text-sm text-neutral-500">Pengaturan pemberitahuan (Client-side)</p>
+                            <h3 className="font-display font-bold">Keamanan</h3>
+                            <p className="text-sm text-neutral-500">Ubah password akun</p>
                         </div>
                     </div>
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
-                            <div>
-                                <Label className="font-medium">Email Notification</Label>
-                                <p className="text-xs text-neutral-500">Kirim notifikasi ke email (Not Implemented)</p>
-                            </div>
-                            <Switch defaultChecked disabled />
+                        <div className="space-y-2">
+                            <Label htmlFor="old_password">Password Lama</Label>
+                            <Input
+                                id="old_password"
+                                type="password"
+                                value={passwordData.oldPassword}
+                                onChange={(e) => setPasswordData({ ...passwordData, oldPassword: e.target.value })}
+                            />
                         </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="new_password">Password Baru</Label>
+                            <Input
+                                id="new_password"
+                                type="password"
+                                value={passwordData.newPassword}
+                                onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                            />
+                        </div>
+                        <Button
+                            onClick={handlePasswordChange}
+                            disabled={changingPassword}
+                            variant="secondary"
+                            className="w-full mt-2"
+                        >
+                            {changingPassword ? "Memproses..." : "Ganti Password"}
+                        </Button>
                     </div>
                 </div>
 

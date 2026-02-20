@@ -16,6 +16,11 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
