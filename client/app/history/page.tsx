@@ -61,6 +61,11 @@ const formatTime = (isoStr: string | null) => {
     });
 };
 
+import { CalendarView } from "@/components/history/calendar-view";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// ... (imports remain)
+
 export default function HistoryPage() {
     const [loading, setLoading] = useState(true);
     const [runs, setRuns] = useState<ScrapeRun[]>([]);
@@ -72,7 +77,7 @@ export default function HistoryPage() {
     const fetchRuns = async () => {
         setLoading(true);
         try {
-            const res = await api.get("/api/flights/runs", { params: { limit: 50 } });
+            const res = await api.get("/api/flights/runs", { params: { limit: 100 } }); // Increased limit for calendar
             setRuns(res.data);
         } catch (err) {
             console.error("Failed to fetch runs", err);
@@ -87,9 +92,11 @@ export default function HistoryPage() {
 
     return (
         <>
-            <div className="mb-6">
-                <h1 className="text-2xl font-display font-bold">Riwayat</h1>
-                <p className="text-sm text-neutral-500 mt-1">Log riwayat pengambilan data harga tiket</p>
+            <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between w-full">
+                <div>
+                    <h1 className="text-2xl font-display font-bold">Riwayat</h1>
+                    <p className="text-sm text-neutral-500 mt-1">Log riwayat pengambilan data harga tiket</p>
+                </div>
             </div>
 
             {/* Stats Overview */}
@@ -140,56 +147,71 @@ export default function HistoryPage() {
                 </CardSolid>
             </div>
 
-            {/* Logs Table */}
-            <div className="rounded-2xl bg-white p-6 shadow-sm border border-neutral-100 overflow-hidden dark:bg-neutral-900 dark:border-neutral-800">
-                <Table>
-                    <TableHeader>
-                        <TableRow className="bg-neutral-50/50 hover:bg-neutral-50/50">
-                            <TableHead>Run ID</TableHead>
-                            <TableHead>Waktu</TableHead>
-                            <TableHead>Rute</TableHead>
-                            <TableHead>Tipe</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Records</TableHead>
-                            <TableHead className="text-right">Errors</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={7} className="text-center py-8 text-neutral-400">
-                                    <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
-                                    Memuat data...
-                                </TableCell>
-                            </TableRow>
-                        ) : runs.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={7} className="text-center py-8 text-neutral-400">
-                                    Belum ada riwayat scraping.
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            runs.map((run) => (
-                                <TableRow key={run.id}>
-                                    <TableCell className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-                                        {run.run_id.slice(0, 12)}...
-                                    </TableCell>
-                                    <TableCell className="text-sm text-neutral-600 dark:text-neutral-400">
-                                        {formatTime(run.scraped_at)}
-                                    </TableCell>
-                                    <TableCell className="font-medium text-sm">
-                                        {run.route.replace("-", " → ")}
-                                    </TableCell>
-                                    <TableCell>{getTypeBadge(run.run_type)}</TableCell>
-                                    <TableCell>{getStatusBadge(run.status)}</TableCell>
-                                    <TableCell className="text-right font-mono text-sm">{run.total_records}</TableCell>
-                                    <TableCell className="text-right font-mono text-sm">{run.total_errors}</TableCell>
+            <Tabs defaultValue="list" className="w-full">
+                <div className="flex items-center justify-between mb-4">
+                    <TabsList>
+                        <TabsTrigger value="list">List View</TabsTrigger>
+                        <TabsTrigger value="calendar">Calendar View</TabsTrigger>
+                    </TabsList>
+                </div>
+
+                <TabsContent value="list">
+                    {/* Logs Table */}
+                    <div className="rounded-2xl bg-white p-6 shadow-sm border border-neutral-100 overflow-hidden dark:bg-neutral-900 dark:border-neutral-800">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-neutral-50/50 hover:bg-neutral-50/50">
+                                    <TableHead>Run ID</TableHead>
+                                    <TableHead>Waktu</TableHead>
+                                    <TableHead>Rute</TableHead>
+                                    <TableHead>Tipe</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">Records</TableHead>
+                                    <TableHead className="text-right">Errors</TableHead>
                                 </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="text-center py-8 text-neutral-400">
+                                            <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                                            Memuat data...
+                                        </TableCell>
+                                    </TableRow>
+                                ) : runs.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="text-center py-8 text-neutral-400">
+                                            Belum ada riwayat scraping.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    runs.map((run) => (
+                                        <TableRow key={run.id}>
+                                            <TableCell className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
+                                                {run.run_id.slice(0, 12)}...
+                                            </TableCell>
+                                            <TableCell className="text-sm text-neutral-600 dark:text-neutral-400">
+                                                {formatTime(run.scraped_at)}
+                                            </TableCell>
+                                            <TableCell className="font-medium text-sm">
+                                                {run.route.replace("-", " → ")}
+                                            </TableCell>
+                                            <TableCell>{getTypeBadge(run.run_type)}</TableCell>
+                                            <TableCell>{getStatusBadge(run.status)}</TableCell>
+                                            <TableCell className="text-right font-mono text-sm">{run.total_records}</TableCell>
+                                            <TableCell className="text-right font-mono text-sm">{run.total_errors}</TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="calendar">
+                    <CalendarView runs={runs} />
+                </TabsContent>
+            </Tabs>
         </>
     );
 }

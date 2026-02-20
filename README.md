@@ -189,4 +189,36 @@ Aplikasi ini secara default memantau rute berikut:
 
 ---
 
+## 🔄 Reset & Data Seeding
+
+Jika Anda ingin menghapus semua data dan memulai dari awal (Fresh Install), ikuti langkah berikut:
+
+### Menggunakan Docker
+1. Hentikan container dan hapus volume database:
+   ```bash
+   docker-compose down -v
+   ```
+2. Jalankan ulang aplikasi:
+   ```bash
+   docker-compose up --build
+   ```
+3. Seed data awal (User Admin):
+   ```bash
+   docker-compose exec backend python -m app.seed
+   ```
+
+### Menggunakan Manual (Local)
+1. Hapus database lama dan buat baru (via PostgreSQL CLI / pgAdmin):
+   ```sql
+   DROP DATABASE aero;
+   CREATE DATABASE aero;
+   ```
+2. Jalankan script seeding (di terminal backend dengan venv aktif):
+   ```bash
+   python -m app.seed
+   ```
+   *Script ini akan otomatis membuat tabel ulang dan menambahkan user admin default.*
+
+---
+
 Developed with ❤️ by **Aero Team**.

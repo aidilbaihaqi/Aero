@@ -86,12 +86,26 @@ const formatShortPrice = (price: number) => {
     return `Rp ${price}`;
 };
 
+import { ScrapeLoadingModal } from "@/components/scraping/scrape-loading-modal";
+
+interface ScrapeStats {
+    total_routes: number;
+    success: number;
+    failed: number;
+    total_records: number;
+}
+
 export default function Dashboard() {
-    const [isScraping, setIsScraping] = useState(false);
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [fares, setFares] = useState<FlightFare[]>([]);
     const [chartData, setChartData] = useState<ChartPoint[]>([]);
+
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isScraping, setIsScraping] = useState(false);
+    const [scrapeError, setScrapeError] = useState<string | null>(null);
+    const [scrapeStats, setScrapeStats] = useState<ScrapeStats | null>(null);
 
     useEffect(() => {
         fetchData();
@@ -116,26 +130,48 @@ export default function Dashboard() {
     };
 
     const handleManualScrape = async () => {
+        setIsModalOpen(true);
         setIsScraping(true);
+        setScrapeError(null);
+        setScrapeStats(null);
+
         try {
             const today = new Date().toISOString().split("T")[0];
             const endDate = "2026-03-31";
-            await api.post("/api/flights/bulk-routes", {
+
+            // Call API
+            const res = await api.post("/api/flights/bulk-routes", {
                 start_date: today,
                 end_date: endDate,
                 run_type: "MANUAL",
             });
-            toast.success("Scraping Berhasil!", {
-                description: "Data telah diperbarui.",
+
+            // Calculate Stats
+            const data = res.data;
+            const successCount = data.results.filter((r: any) => r.status === "SUCCESS").length;
+            const failedCount = data.results.filter((r: any) => r.status === "FAILED").length;
+
+            setScrapeStats({
+                total_routes: data.total_routes,
+                total_records: data.total_records,
+                success: successCount,
+                failed: failedCount,
             });
-            fetchData(); // Refresh dashboard
+
+            toast.success("Scraping Selesai!");
+            fetchData(); // Refresh dashboard data in background
         } catch (err: any) {
-            toast.error("Scraping Gagal", {
-                description: err?.response?.data?.detail || "Terjadi kesalahan.",
-            });
+            console.error("Scrape failed", err);
+            setScrapeError(err?.response?.data?.detail || "Gagal menghubungi server.");
+            toast.error("Scraping Gagal");
         } finally {
             setIsScraping(false);
         }
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        // If successful, we might want to refresh data again or just leave it
     };
 
     const lastScrapeLabel = stats?.last_scrape_time
@@ -150,6 +186,14 @@ export default function Dashboard() {
 
     return (
         <>
+            <ScrapeLoadingModal
+                isOpen={isModalOpen}
+                isLoading={isScraping}
+                error={scrapeError}
+                stats={scrapeStats}
+                onClose={handleCloseModal}
+            />
+
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-2xl font-display font-bold">Beranda</h1>
@@ -184,17 +228,8 @@ export default function Dashboard() {
                     disabled={isScraping}
                     className="w-full md:w-auto font-bold shadow-lg shadow-neutral-200 hover:shadow-xl transition-all active:scale-95"
                 >
-                    {isScraping ? (
-                        <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Sedang mengambil data...
-                        </>
-                    ) : (
-                        <>
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                            Ambil Data Sekarang
-                        </>
-                    )}
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Ambil Data Sekarang
                 </Button>
             </div>
 
