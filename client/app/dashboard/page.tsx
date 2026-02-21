@@ -95,6 +95,18 @@ interface ScrapeStats {
     total_records: number;
 }
 
+interface ScrapeProgress {
+    status: string;
+    progress: number;
+    current_route?: string;
+    route_index?: number;
+    total_routes?: number;
+    dates_processed?: number;
+    total_dates?: number;
+    total_records?: number;
+    error?: string;
+}
+
 export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -106,6 +118,7 @@ export default function Dashboard() {
     const [isScraping, setIsScraping] = useState(false);
     const [scrapeError, setScrapeError] = useState<string | null>(null);
     const [scrapeStats, setScrapeStats] = useState<ScrapeStats | null>(null);
+    const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
 
     useEffect(() => {
         fetchData();
@@ -134,44 +147,61 @@ export default function Dashboard() {
         setIsScraping(true);
         setScrapeError(null);
         setScrapeStats(null);
+        setScrapeProgress(null);
 
         try {
             const today = new Date().toISOString().split("T")[0];
             const endDate = "2026-03-31";
 
-            // Call API
+            // 1. Start background job — returns immediately with job_id
             const res = await api.post("/api/flights/bulk-routes", {
                 start_date: today,
                 end_date: endDate,
                 run_type: "MANUAL",
             });
 
-            // Calculate Stats
-            const data = res.data;
-            const successCount = data.results.filter((r: any) => r.status === "SUCCESS").length;
-            const failedCount = data.results.filter((r: any) => r.status === "FAILED").length;
+            const jobId = res.data.job_id;
 
-            setScrapeStats({
-                total_routes: data.total_routes,
-                total_records: data.total_records,
-                success: successCount,
-                failed: failedCount,
-            });
+            // 2. Poll progress every 2 seconds
+            const pollInterval = setInterval(async () => {
+                try {
+                    const progressRes = await api.get(`/api/flights/scrape-progress/${jobId}`);
+                    const data: ScrapeProgress = progressRes.data;
+                    setScrapeProgress(data);
 
-            toast.success("Scraping Selesai!");
-            fetchData(); // Refresh dashboard data in background
+                    if (data.status === "COMPLETED") {
+                        clearInterval(pollInterval);
+                        setIsScraping(false);
+                        setScrapeStats({
+                            total_routes: data.total_routes ?? 0,
+                            total_records: data.total_records ?? 0,
+                            success: data.total_routes ?? 0,
+                            failed: 0,
+                        });
+                        toast.success("Scraping Selesai!");
+                        fetchData();
+                    } else if (data.status === "FAILED") {
+                        clearInterval(pollInterval);
+                        setIsScraping(false);
+                        setScrapeError(data.error || "Scraping gagal.");
+                        toast.error("Scraping Gagal");
+                    }
+                } catch (pollErr) {
+                    console.error("Poll error", pollErr);
+                    // Don't stop polling on transient errors
+                }
+            }, 2000);
+
         } catch (err: any) {
             console.error("Scrape failed", err);
             setScrapeError(err?.response?.data?.detail || "Gagal menghubungi server.");
-            toast.error("Scraping Gagal");
-        } finally {
             setIsScraping(false);
+            toast.error("Scraping Gagal");
         }
     };
 
     const handleCloseModal = () => {
         setIsModalOpen(false);
-        // If successful, we might want to refresh data again or just leave it
     };
 
     const lastScrapeLabel = stats?.last_scrape_time
@@ -191,6 +221,7 @@ export default function Dashboard() {
                 isLoading={isScraping}
                 error={scrapeError}
                 stats={scrapeStats}
+                progress={scrapeProgress}
                 onClose={handleCloseModal}
             />
 

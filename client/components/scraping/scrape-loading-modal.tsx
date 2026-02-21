@@ -1,43 +1,44 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Plane, CheckCircle2, XCircle, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
-// Custom Modal Component since we want specific styling/animation
-// and to avoid dependency issues if Dialog isn't fully set up with Radix
+interface ScrapeProgress {
+  status: string;
+  progress: number;
+  current_route?: string;
+  route_index?: number;
+  total_routes?: number;
+  dates_processed?: number;
+  total_dates?: number;
+  total_records?: number;
+  error?: string;
+}
+
 export function ScrapeLoadingModal({
   isOpen,
   isLoading,
   error,
   stats,
+  progress: realProgress,
   onClose,
 }: {
   isOpen: boolean;
   isLoading: boolean;
   error: string | null;
-  stats: any | null; // using any for flexibility or define interface
+  stats: any | null;
+  progress: ScrapeProgress | null;
   onClose: () => void;
 }) {
-  // Fake progress for visual feedback
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isOpen && isLoading) {
-      setProgress(0);
-      interval = setInterval(() => {
-        setProgress((prev) => {
-          const next = prev + Math.random() * 2;
-          return next > 90 ? 90 : next;
-        });
-      }, 500);
-    } else if (!isLoading && isOpen) {
-      setProgress(100);
-    }
-    return () => clearInterval(interval);
-  }, [isOpen, isLoading]);
+  const displayProgress = realProgress?.progress ?? 0;
+  const currentRoute = realProgress?.current_route ?? "";
+  const routeIndex = realProgress?.route_index ?? 0;
+  const totalRoutes = realProgress?.total_routes ?? 0;
+  const datesProcessed = realProgress?.dates_processed ?? 0;
+  const totalDates = realProgress?.total_dates ?? 0;
+  const totalRecords = realProgress?.total_records ?? 0;
 
   if (!isOpen) return null;
 
@@ -81,27 +82,41 @@ export function ScrapeLoadingModal({
                 : "Scraping Selesai!"}
           </h2>
 
-          <p className="mt-2 text-sm text-neutral-500 mb-6">
+          <p className="mt-2 text-sm text-neutral-500 mb-4">
             {isLoading
-              ? "Sistem sedang menghubungi maskapai untuk update harga terbaru. Mohon tunggu sebentar."
+              ? "Sistem sedang menghubungi maskapai untuk update harga terbaru."
               : error
                 ? "Terjadi kesalahan saat menghubungi server."
                 : "Data harga penerbangan berhasil diperbarui."}
           </p>
 
-          {/* Progress Bar (Loading) */}
+          {/* Progress Bar (Loading) — Now with real progress */}
           {isLoading && (
-            <div className="w-full space-y-2 mb-6">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+            <div className="w-full space-y-3 mb-6">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-100">
                 <div
-                  className="h-full bg-black transition-all duration-300 ease-out rounded-full"
-                  style={{ width: `${progress}%` }}
+                  className="h-full bg-black transition-all duration-500 ease-out rounded-full"
+                  style={{ width: `${Math.max(displayProgress, 2)}%` }}
                 ></div>
               </div>
-              <div className="flex justify-between text-xs text-neutral-400 font-medium">
-                <span>Memproses rute...</span>
-                <span>Estimasi: ~1-2 menit</span>
+
+              {/* Progress details */}
+              <div className="flex justify-between text-xs text-neutral-500 font-medium">
+                <span>
+                  {currentRoute
+                    ? `Rute: ${currentRoute} (${routeIndex}/${totalRoutes})`
+                    : "Memulai scraping..."}
+                </span>
+                <span className="font-mono">{displayProgress.toFixed(0)}%</span>
               </div>
+
+              {/* Extra details */}
+              {totalDates > 0 && (
+                <div className="flex justify-between text-[10px] text-neutral-400">
+                  <span>{datesProcessed}/{totalDates} tanggal diproses</span>
+                  <span>{totalRecords} data terkumpul</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -110,15 +125,15 @@ export function ScrapeLoadingModal({
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div className="rounded-xl bg-neutral-50 p-3 border border-neutral-200">
                 <div className="text-xs text-neutral-400 font-medium uppercase">Rute</div>
-                <div className="text-xl font-bold text-neutral-900">{stats.route_count ?? 0}</div>
+                <div className="text-xl font-bold text-neutral-900">{stats.total_routes ?? 0}</div>
               </div>
               <div className="rounded-xl bg-neutral-50 p-3 border border-neutral-200">
-                <div className="text-xs text-neutral-600 font-medium uppercase">Sukses</div>
-                <div className="text-xl font-bold text-neutral-900">{stats.success_count ?? 0}</div>
+                <div className="text-xs text-neutral-600 font-medium uppercase">Data</div>
+                <div className="text-xl font-bold text-neutral-900">{stats.total_records ?? 0}</div>
               </div>
               <div className="rounded-xl bg-neutral-50 p-3 border border-neutral-200">
-                <div className="text-xs text-neutral-600 font-medium uppercase">Gagal</div>
-                <div className="text-xl font-bold text-neutral-900">{stats.error_count ?? 0}</div>
+                <div className="text-xs text-neutral-600 font-medium uppercase">Status</div>
+                <div className="text-xl font-bold text-green-600">✓</div>
               </div>
             </div>
           )}

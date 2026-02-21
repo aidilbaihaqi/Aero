@@ -35,7 +35,7 @@ def fetch_garuda(origin, destination, depart_date):
         }
     }
 
-    response = requests.post(URL_GARUDA, json=payload)
+    response = requests.post(URL_GARUDA, json=payload, timeout=15)
     response.raise_for_status()
     return response.json()
 

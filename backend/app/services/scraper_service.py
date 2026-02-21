@@ -1,20 +1,29 @@
 """
 scraper_service.py — Orchestrate scraping dan simpan ke database (3-table structure).
+
+Optimised version:
+- Concurrent date processing (batch of 5 dates in parallel)
+- Background task with progress tracking
+- Reduced retry (2 attempts, max 4s backoff)
+- HTTP timeout on all scrapers
 """
 
 import time
 import uuid
 import logging
 import statistics
+import threading
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, Optional
 
 import requests as req_lib
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.config import settings
+from app.database import SessionLocal
 from app.models.flight import ScrapeRun, FlightFare, FareDailySummary
 from app.models.notification import Notification
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
@@ -23,13 +32,39 @@ from app.scrapers.bookcabin import scrape_bookcabin, URL_BOOKCABIN
 
 logger = logging.getLogger("aero.scraper")
 
-# --- Retry decorator ---
+# --- Retry decorator (optimised: 2 attempts, max 4s backoff) ---
 _scrape_retry = retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=8),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
     retry=retry_if_exception_type((req_lib.exceptions.RequestException, TimeoutError, ConnectionError)),
     reraise=True,
 )
+
+# =============================================
+# In-memory job progress store
+# =============================================
+
+_job_progress: dict[str, dict] = {}
+_job_lock = threading.Lock()
+
+
+def get_job_progress(job_id: str) -> dict | None:
+    with _job_lock:
+        return _job_progress.get(job_id, None)
+
+
+def _set_job_progress(job_id: str, data: dict):
+    with _job_lock:
+        _job_progress[job_id] = data
+
+
+def _cleanup_job(job_id: str, delay: int = 300):
+    """Remove job from memory after delay seconds."""
+    def _remove():
+        time.sleep(delay)
+        with _job_lock:
+            _job_progress.pop(job_id, None)
+    threading.Thread(target=_remove, daemon=True).start()
 
 
 def generate_dates(start: date, end: date) -> list[str]:
@@ -211,76 +246,14 @@ def _compute_daily_summary(db: Session, run_id: str, route: str, scrape_dt: date
 
 
 # =============================================
-# Main scrape orchestrator
+# Scrape one date (all airlines in parallel)
 # =============================================
 
-def scrape_and_save(
-    db: Session,
-    origin: str,
-    destination: str,
-    start_date: date,
-    end_date: date,
-    citilink_token: str | None = None,
-    run_type: str = "MANUAL",
-) -> dict:
-    """Scrape semua tanggal, simpan ke DB, hitung summary."""
-
-    run_id = str(uuid.uuid4())
-    scrape_dt = date.today()
-    route = f"{origin}-{destination}"
-    token = citilink_token or settings.CITILINK_TOKEN
-    dates = generate_dates(start_date, end_date)
-
-    # 1. Buat ScrapeRun record
-    run = ScrapeRun(
-        run_id=run_id,
-        run_type=run_type,
-        scrape_date=scrape_dt,
-        route=route,
-        status="RUNNING",
-    )
-    db.add(run)
-    db.commit()
-
-    all_records: list[dict] = []
-    total_errors = 0
-    _citilink_token_expired = [False]  # mutable flag for closure
-    stats = {
-        "garuda_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
-        "citilink_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
-        "bookcabin_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
-    }
-
-    # 2. Scrape per tanggal (3 airlines in PARALLEL per date)
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    def _scrape_garuda_safe(date_str):
-        try:
-            flights = _scrape_retry(scrape_garuda)(origin, destination, date_str)
-            return ("garuda_api", date_str, flights, None)
-        except Exception as e:
-            logger.warning("Garuda scrape failed for %s: %s", date_str, e)
-            return ("garuda_api", date_str, [], str(e))
-
-    def _scrape_citilink_safe(date_str):
-        try:
-            flights = _scrape_retry(scrape_citilink)(origin, destination, date_str, token)
-            return ("citilink_api", date_str, flights, None)
-        except Exception as e:
-            err_str = str(e)
-            logger.warning("Citilink scrape failed for %s: %s", date_str, e)
-            # Task 13: Detect token expiry
-            if "401" in err_str or "403" in err_str or "Unauthorized" in err_str:
-                _citilink_token_expired[0] = True
-            return ("citilink_api", date_str, [], err_str)
-
-    def _scrape_bookcabin_safe(date_str):
-        try:
-            flights = _scrape_retry(scrape_bookcabin)(origin, destination, date_str)
-            return ("bookcabin_api", date_str, flights, None)
-        except Exception as e:
-            logger.warning("BookCabin scrape failed for %s: %s", date_str, e)
-            return ("bookcabin_api", date_str, [], str(e))
+def _scrape_single_date(
+    origin: str, destination: str, date_str: str,
+    token: str | None, run_id: str, route: str,
+) -> tuple[list[dict], int, bool]:
+    """Scrape one date for all airlines. Returns (records, error_count, token_expired)."""
 
     normalizers = {
         "garuda_api": _normalize_garuda,
@@ -298,41 +271,183 @@ def scrape_and_save(
         "bookcabin_api": "bookcabin",
     }
 
-    for date_str in dates:
-        # Launch 3 scrapers in parallel
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(_scrape_garuda_safe, date_str),
-                executor.submit(_scrape_bookcabin_safe, date_str),
-            ]
-            if token:
-                futures.append(executor.submit(_scrape_citilink_safe, date_str))
+    records: list[dict] = []
+    errors = 0
+    token_expired = False
 
-            for future in as_completed(futures):
-                src, ds, flights, error = future.result()
+    def _scrape_garuda_safe():
+        try:
+            flights = _scrape_retry(scrape_garuda)(origin, destination, date_str)
+            return ("garuda_api", flights, None)
+        except Exception as e:
+            logger.warning("Garuda scrape failed for %s: %s", date_str, e)
+            return ("garuda_api", [], str(e))
 
-                if error:
-                    stats[src]["errors"] += 1
-                    total_errors += 1
-                    all_records.append({
-                        "run_id": run_id, "route": route, "airline": "-", "source": src,
-                        "travel_date": datetime.strptime(ds, "%Y-%m-%d").date(),
-                        "flight_number": "-", "depart_time": "-", "arrive_time": "-",
-                        "basic_fare": 0, "currency": "IDR",
-                        "scrape_source_page": source_urls[src],
-                        "source_type": source_types[src],
-                        "status_scrape": "FAILED", "error_reason": error,
+    def _scrape_citilink_safe():
+        try:
+            flights = _scrape_retry(scrape_citilink)(origin, destination, date_str, token)
+            return ("citilink_api", flights, None)
+        except Exception as e:
+            err_str = str(e)
+            logger.warning("Citilink scrape failed for %s: %s", date_str, e)
+            return ("citilink_api", [], err_str)
+
+    def _scrape_bookcabin_safe():
+        try:
+            flights = _scrape_retry(scrape_bookcabin)(origin, destination, date_str)
+            return ("bookcabin_api", flights, None)
+        except Exception as e:
+            logger.warning("BookCabin scrape failed for %s: %s", date_str, e)
+            return ("bookcabin_api", [], str(e))
+
+    # Launch 3 scrapers in parallel for this date
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(_scrape_garuda_safe),
+            executor.submit(_scrape_bookcabin_safe),
+        ]
+        if token:
+            futures.append(executor.submit(_scrape_citilink_safe))
+
+        for future in as_completed(futures):
+            src, flights, error = future.result()
+
+            if error:
+                errors += 1
+                if src == "citilink_api" and ("401" in error or "403" in error or "Unauthorized" in error):
+                    token_expired = True
+                records.append({
+                    "run_id": run_id, "route": route, "airline": "-", "source": src,
+                    "travel_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
+                    "flight_number": "-", "depart_time": "-", "arrive_time": "-",
+                    "basic_fare": 0, "currency": "IDR",
+                    "scrape_source_page": source_urls[src],
+                    "source_type": source_types[src],
+                    "status_scrape": "FAILED", "error_reason": error,
+                })
+            else:
+                normalize_fn = normalizers[src]
+                for f in flights:
+                    records.append(normalize_fn(f, run_id, route))
+
+    return records, errors, token_expired
+
+
+# =============================================
+# Main scrape orchestrator
+# =============================================
+
+def scrape_and_save(
+    db: Session,
+    origin: str,
+    destination: str,
+    start_date: date,
+    end_date: date,
+    citilink_token: str | None = None,
+    run_type: str = "MANUAL",
+    job_id: str | None = None,
+    route_index: int = 0,
+    total_routes: int = 1,
+) -> dict:
+    """Scrape semua tanggal, simpan ke DB, hitung summary.
+    
+    Now processes dates in concurrent batches of 5 for much faster execution.
+    """
+
+    run_id = str(uuid.uuid4())
+    scrape_dt = date.today()
+    route = f"{origin}-{destination}"
+    token = citilink_token or settings.CITILINK_TOKEN
+    dates = generate_dates(start_date, end_date)
+    total_dates = len(dates)
+
+    # 1. Buat ScrapeRun record
+    run = ScrapeRun(
+        run_id=run_id,
+        run_type=run_type,
+        scrape_date=scrape_dt,
+        route=route,
+        status="RUNNING",
+    )
+    db.add(run)
+    db.commit()
+
+    all_records: list[dict] = []
+    total_errors = 0
+    citilink_token_expired = False
+    stats = {
+        "garuda_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
+        "citilink_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
+        "bookcabin_api": {"total_flights": 0, "total_dates": 0, "errors": 0},
+    }
+
+    # 2. Scrape dates in concurrent batches of 5
+    BATCH_SIZE = 5
+    dates_processed = 0
+
+    for batch_start in range(0, total_dates, BATCH_SIZE):
+        batch = dates[batch_start:batch_start + BATCH_SIZE]
+
+        # Process batch of dates concurrently
+        with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
+            future_to_date = {
+                executor.submit(
+                    _scrape_single_date, origin, destination, ds, token, run_id, route
+                ): ds for ds in batch
+            }
+
+            for future in as_completed(future_to_date):
+                ds = future_to_date[future]
+                try:
+                    records, err_count, tok_expired = future.result()
+                    all_records.extend(records)
+                    total_errors += err_count
+                    if tok_expired:
+                        citilink_token_expired = True
+
+                    # Update per-source stats
+                    for r in records:
+                        src = r.get("source", "")
+                        if src in stats:
+                            if r.get("status_scrape") == "SUCCESS":
+                                stats[src]["total_flights"] += 1
+                            else:
+                                stats[src]["errors"] += 1
+
+                except Exception as e:
+                    logger.error("Unexpected error scraping date %s: %s", ds, e)
+                    total_errors += 3  # assume all 3 scrapers failed
+
+                dates_processed += 1
+
+                # Update progress if job_id provided
+                if job_id:
+                    overall_progress = (
+                        (route_index * total_dates + dates_processed)
+                        / (total_routes * total_dates)
+                    ) * 100
+                    _set_job_progress(job_id, {
+                        "status": "RUNNING",
+                        "progress": round(overall_progress, 1),
+                        "current_route": route,
+                        "route_index": route_index + 1,
+                        "total_routes": total_routes,
+                        "dates_processed": dates_processed,
+                        "total_dates": total_dates,
+                        "total_records": len(all_records),
                     })
-                else:
-                    normalize_fn = normalizers[src]
-                    for f in flights:
-                        all_records.append(normalize_fn(f, run_id, route))
-                    stats[src]["total_flights"] += len(flights)
-                    if flights:
-                        stats[src]["total_dates"] += 1
 
-        # 1 delay per date batch (not per scraper)
-        time.sleep(settings.SCRAPE_DELAY)
+        # Small delay between batches to be polite to APIs
+        if batch_start + BATCH_SIZE < total_dates:
+            time.sleep(settings.SCRAPE_DELAY)
+
+    # Count dates per source
+    for src in stats:
+        src_dates = set()
+        for r in all_records:
+            if r.get("source") == src and r.get("status_scrape") == "SUCCESS":
+                src_dates.add(r.get("travel_date"))
+        stats[src]["total_dates"] = len(src_dates)
 
     # 3. Mark lowest fares
     if all_records:
@@ -369,7 +484,7 @@ def scrape_and_save(
         ))
 
     # 8. NOTIFICATION: Citilink token expired
-    if _citilink_token_expired[0]:
+    if citilink_token_expired:
         db.add(Notification(
             type="warning",
             title="Citilink Token Expired",
@@ -399,3 +514,79 @@ def scrape_and_save(
             {"source": src, **data} for src, data in stats.items()
         ],
     }
+
+
+# =============================================
+# Background bulk-routes orchestrator
+# =============================================
+
+def run_bulk_routes_background(
+    job_id: str,
+    routes: list[dict],  # [{"origin": "BTH", "destination": "CGK"}, ...]
+    start_date: date,
+    end_date: date,
+    citilink_token: str | None = None,
+    run_type: str = "MANUAL",
+):
+    """Run bulk-routes scraping in a background thread with progress tracking."""
+    db = SessionLocal()
+    try:
+        results = []
+        total_records = 0
+        total_routes = len(routes)
+
+        _set_job_progress(job_id, {
+            "status": "RUNNING",
+            "progress": 0,
+            "current_route": "",
+            "route_index": 0,
+            "total_routes": total_routes,
+            "dates_processed": 0,
+            "total_dates": 0,
+            "total_records": 0,
+        })
+
+        for i, route_cfg in enumerate(routes):
+            origin = route_cfg["origin"]
+            destination = route_cfg["destination"]
+
+            result = scrape_and_save(
+                db=db,
+                origin=origin,
+                destination=destination,
+                start_date=start_date,
+                end_date=end_date,
+                citilink_token=citilink_token,
+                run_type=run_type,
+                job_id=job_id,
+                route_index=i,
+                total_routes=total_routes,
+            )
+            results.append(result)
+            total_records += result["total_records"]
+
+        # Final progress
+        _set_job_progress(job_id, {
+            "status": "COMPLETED",
+            "progress": 100,
+            "current_route": "",
+            "route_index": total_routes,
+            "total_routes": total_routes,
+            "dates_processed": 0,
+            "total_dates": 0,
+            "total_records": total_records,
+            "results": results,
+        })
+
+    except Exception as e:
+        logger.error("Bulk routes background job failed: %s", e)
+        _set_job_progress(job_id, {
+            "status": "FAILED",
+            "progress": 0,
+            "error": str(e),
+            "total_records": 0,
+        })
+    finally:
+        db.close()
+        # Cleanup job data after 5 minutes
+        _cleanup_job(job_id, delay=300)

@@ -48,7 +48,7 @@ def fetch_citilink(origin, destination, depart_date, token):
         "taxesAndFees": 2
     }
 
-    response = requests.post(URL_CITILINK, json=payload, headers=headers)
+    response = requests.post(URL_CITILINK, json=payload, headers=headers, timeout=15)
     response.raise_for_status()
     return response.json()
 

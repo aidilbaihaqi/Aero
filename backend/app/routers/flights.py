@@ -2,10 +2,12 @@
 flights.py — API endpoints untuk flight scraping.
 """
 
+import uuid
+import threading
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -16,7 +18,7 @@ from app.schemas.flight import (
     ScrapeRequest, ScrapeResponse, ExportRequest,
     BulkRoutesRequest, BulkRoutesResponse, RouteItem,
 )
-from app.services.scraper_service import scrape_and_save
+from app.services.scraper_service import scrape_and_save, run_bulk_routes_background, get_job_progress
 from app.services.export_service import export_triangle_xlsx
 from app.services.auth_service import get_current_user
 from app.models.user import User
@@ -51,39 +53,44 @@ def bulk_scrape(req: ScrapeRequest, db: Session = Depends(get_db), _user: User =
                            citilink_token=req.citilink_token, run_type=req.run_type)
 
 
-@router.post("/bulk-routes", response_model=BulkRoutesResponse)
-def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    """Scrape beberapa rute sekaligus.
+@router.post("/bulk-routes")
+def bulk_routes_scrape(req: BulkRoutesRequest, _user: User = Depends(get_current_user)):
+    """Scrape beberapa rute sekaligus (background task).
     
-    Jika `routes` kosong, pakai DEFAULT_ROUTES dari config:
-    BTH-CGK, BTH-KNO, BTH-SUB, BTH-PDG, TNJ-CGK
+    Langsung return job_id, scraping berjalan di background thread.
+    Gunakan GET /api/flights/scrape-progress/{job_id} untuk polling progress.
     """
-    # Pakai default routes jika tidak ada
+    # Resolve routes
     routes = req.routes
     if not routes:
         routes = [RouteItem(**r) for r in settings.DEFAULT_ROUTES]
 
-    results: list[ScrapeResponse] = []
-    total_records = 0
+    job_id = str(uuid.uuid4())
+    routes_dicts = [{"origin": r.origin, "destination": r.destination} for r in routes]
 
-    for route in routes:
-        result = scrape_and_save(
-            db=db,
-            origin=route.origin,
-            destination=route.destination,
-            start_date=req.start_date,
-            end_date=req.end_date,
-            citilink_token=req.citilink_token,
-            run_type=req.run_type,
-        )
-        results.append(ScrapeResponse(**result))
-        total_records += result["total_records"]
-
-    return BulkRoutesResponse(
-        total_routes=len(routes),
-        total_records=total_records,
-        results=results,
+    # Launch background thread
+    thread = threading.Thread(
+        target=run_bulk_routes_background,
+        args=(job_id, routes_dicts, req.start_date, req.end_date, req.citilink_token, req.run_type),
+        daemon=True,
     )
+    thread.start()
+
+    return {
+        "job_id": job_id,
+        "status": "STARTED",
+        "total_routes": len(routes),
+        "message": "Scraping dimulai di background. Gunakan /api/flights/scrape-progress/{job_id} untuk cek progress."
+    }
+
+
+@router.get("/scrape-progress/{job_id}")
+def get_scrape_progress(job_id: str):
+    """Polling endpoint untuk progress scraping background."""
+    progress = get_job_progress(job_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Job not found or already expired.")
+    return progress
 
 
 # =============================================

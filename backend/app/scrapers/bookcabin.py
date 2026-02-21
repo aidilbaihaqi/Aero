@@ -35,7 +35,7 @@ def fetch_bookcabin(origin, destination, depart_date):
         "currencyCode": "IDR",
     }
 
-    response = requests.get(URL_BOOKCABIN, params=params)
+    response = requests.get(URL_BOOKCABIN, params=params, timeout=15)
     response.raise_for_status()
     return response.json()
 
