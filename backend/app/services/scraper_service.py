@@ -34,7 +34,7 @@ logger = logging.getLogger("aero.scraper")
 
 # --- Retry decorator (optimised: 2 attempts, max 4s backoff) ---
 _scrape_retry = retry(
-    stop=stop_after_attempt(2),
+    stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=4),
     retry=retry_if_exception_type((req_lib.exceptions.RequestException, TimeoutError, ConnectionError)),
     reraise=True,

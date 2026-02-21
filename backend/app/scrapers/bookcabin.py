@@ -60,7 +60,9 @@ def parse_bookcabin(data):
             - route, airline, flight_number, travel_date, depart_time,
               arrival_time, base_fare, total_fare
     """
-    fares = data.get("data", {}).get("fares", {}).get("depart", [])
+    raw_data = data.get("data") or {}
+    raw_fares = raw_data.get("fares") or {}
+    fares = raw_fares.get("depart") or []
 
     flights = []
 
@@ -140,4 +142,6 @@ def scrape_bookcabin(origin, destination, depart_date):
         list[dict]: daftar penerbangan dari BookCabin (Super Air Jet, Batik Air, Lion Air)
     """
     data = fetch_bookcabin(origin, destination, depart_date)
+    if not data or not isinstance(data, dict):
+        return []
     return parse_bookcabin(data)

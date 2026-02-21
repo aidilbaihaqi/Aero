@@ -1,5 +1,8 @@
+import logging
 import requests
 import re
+
+logger = logging.getLogger("aero.scraper")
 
 URL_GARUDA = "https://web-api.garuda-indonesia.com/ga/revamp/v1.0/dapi/airFare"
 
@@ -36,6 +39,12 @@ def fetch_garuda(origin, destination, depart_date):
     }
 
     response = requests.post(URL_GARUDA, json=payload, timeout=15)
+
+    # Garuda API sering return 500 untuk tanggal tertentu (no flights / server issue)
+    if response.status_code == 500:
+        logger.info("Garuda API returned 500 for %s-%s on %s — no data available", origin, destination, depart_date)
+        return {}
+
     response.raise_for_status()
     return response.json()
 
@@ -84,9 +93,12 @@ def parse_garuda(data):
             - route, airline, flight_number, depart_time, arrival_time,
               fare_family, base_fare, total_fare
     """
-    result_data = data.get("result", {})
-    flight_data_list = result_data.get("flightData", [])
-    pricing_data = result_data.get("pricingData", {})
+    if not data or not isinstance(data, dict):
+        return []
+
+    result_data = data.get("result") or {}
+    flight_data_list = result_data.get("flightData") or []
+    pricing_data = result_data.get("pricingData") or {}
 
     # Buat lookup dari flightData: sid -> detail penerbangan
     flight_lookup = {}

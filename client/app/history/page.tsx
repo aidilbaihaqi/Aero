@@ -29,17 +29,17 @@ interface ScrapeRun {
     total_errors: number;
 }
 
-const getStatusBadge = (status: string) => {
-    switch (status) {
-        case "SUCCESS":
-            return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none"><CheckCircle className="h-3 w-3 mr-1" />Berhasil</Badge>;
-        case "PARTIAL":
-            return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-none"><AlertTriangle className="h-3 w-3 mr-1" />Sebagian</Badge>;
-        case "FAILED":
-            return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-none"><XCircle className="h-3 w-3 mr-1" />Gagal</Badge>;
-        default:
-            return <Badge variant="secondary">{status}</Badge>;
+const getStatusBadge = (status: string, totalErrors: number = 0) => {
+    if (status === "COMPLETED" && totalErrors === 0) {
+        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none"><CheckCircle className="h-3 w-3 mr-1" />Berhasil</Badge>;
     }
+    if (status === "COMPLETED" && totalErrors > 0) {
+        return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-none"><AlertTriangle className="h-3 w-3 mr-1" />Sebagian</Badge>;
+    }
+    if (status === "FAILED") {
+        return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-none"><XCircle className="h-3 w-3 mr-1" />Gagal</Badge>;
+    }
+    return <Badge variant="secondary">{status}</Badge>;
 };
 
 const getTypeBadge = (type: string) => {
@@ -86,8 +86,8 @@ export default function HistoryPage() {
         }
     };
 
-    const successCount = runs.filter((r) => r.status === "SUCCESS").length;
-    const partialCount = runs.filter((r) => r.status === "PARTIAL").length;
+    const successCount = runs.filter((r) => r.status === "COMPLETED" && r.total_errors === 0).length;
+    const partialCount = runs.filter((r) => r.status === "COMPLETED" && r.total_errors > 0).length;
     const failedCount = runs.filter((r) => r.status === "FAILED").length;
 
     return (
@@ -197,7 +197,7 @@ export default function HistoryPage() {
                                                 {run.route.replace("-", " → ")}
                                             </TableCell>
                                             <TableCell>{getTypeBadge(run.run_type)}</TableCell>
-                                            <TableCell>{getStatusBadge(run.status)}</TableCell>
+                                            <TableCell>{getStatusBadge(run.status, run.total_errors)}</TableCell>
                                             <TableCell className="text-right font-mono text-sm">{run.total_records}</TableCell>
                                             <TableCell className="text-right font-mono text-sm">{run.total_errors}</TableCell>
                                         </TableRow>
