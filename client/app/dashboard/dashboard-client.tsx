@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import {
@@ -117,6 +117,7 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isScraping, setIsScraping] = useState(false);
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [scrapeError, setScrapeError] = useState<string | null>(null);
     const [scrapeStats, setScrapeStats] = useState<ScrapeStats | null>(null);
     const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
@@ -127,6 +128,41 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
     const { data: chartData, mutate: mutateChart, isLoading: isChartLoading } = useSWR<ChartPoint[]>("/api/stats/chart", fetcher, { fallbackData: initialChartData });
 
     const loading = isStatsLoading || isFaresLoading || isChartLoading;
+
+    // Dynamic SWR polling for scrape progress
+    const { data: pollData } = useSWR<ScrapeProgress>(
+        activeJobId ? `/api/flights/scrape-progress/${activeJobId}` : null,
+        fetcher,
+        { refreshInterval: 2000 }
+    );
+
+    useEffect(() => {
+        if (pollData && activeJobId) {
+            setScrapeProgress(pollData);
+
+            if (pollData.status === "COMPLETED") {
+                setActiveJobId(null);
+                setIsScraping(false);
+                setScrapeStats({
+                    total_routes: pollData.total_routes ?? 0,
+                    total_records: pollData.total_records ?? 0,
+                    success: pollData.total_routes ?? 0,
+                    failed: 0,
+                });
+                toast.success("Scraping Selesai!");
+
+                // Revalidate data via SWR
+                mutateStats();
+                mutateFares();
+                mutateChart();
+            } else if (pollData.status === "FAILED") {
+                setActiveJobId(null);
+                setIsScraping(false);
+                setScrapeError(pollData.error || "Scraping gagal.");
+                toast.error("Scraping Gagal");
+            }
+        }
+    }, [pollData, activeJobId, mutateStats, mutateFares, mutateChart]);
 
     const handleManualScrape = async () => {
         setIsModalOpen(true);
@@ -145,39 +181,9 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
                 run_type: "MANUAL",
             });
 
-            const jobId = res.data.job_id;
+            setActiveJobId(res.data.job_id);
 
-            const pollInterval = setInterval(async () => {
-                try {
-                    const progressRes = await api.get(`/api/flights/scrape-progress/${jobId}`);
-                    const data: ScrapeProgress = progressRes.data;
-                    setScrapeProgress(data);
 
-                    if (data.status === "COMPLETED") {
-                        clearInterval(pollInterval);
-                        setIsScraping(false);
-                        setScrapeStats({
-                            total_routes: data.total_routes ?? 0,
-                            total_records: data.total_records ?? 0,
-                            success: data.total_routes ?? 0,
-                            failed: 0,
-                        });
-                        toast.success("Scraping Selesai!");
-                        
-                        // Revalidate data via SWR
-                        mutateStats();
-                        mutateFares();
-                        mutateChart();
-                    } else if (data.status === "FAILED") {
-                        clearInterval(pollInterval);
-                        setIsScraping(false);
-                        setScrapeError(data.error || "Scraping gagal.");
-                        toast.error("Scraping Gagal");
-                    }
-                } catch (pollErr) {
-                    console.error("Poll error", pollErr);
-                }
-            }, 2000);
 
         } catch (err: any) {
             console.error("Scrape failed", err);

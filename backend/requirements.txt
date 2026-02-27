@@ -11,3 +11,6 @@ bcrypt
 python-multipart
 apscheduler
 tenacity
+celery
+redis
+circuitbreaker

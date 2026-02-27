@@ -29,6 +29,7 @@ from app.models.notification import Notification
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
 from app.scrapers.citilink import scrape_citilink, URL_CITILINK
 from app.scrapers.bookcabin import scrape_bookcabin, URL_BOOKCABIN
+from app.services.citilink_auth import get_citilink_token
 
 logger = logging.getLogger("aero.scraper")
 
@@ -314,7 +315,7 @@ def _scrape_single_date(
 
             if error:
                 errors += 1
-                if src == "citilink_api" and ("401" in error or "403" in error or "Unauthorized" in error):
+                if src == "citilink_api" and ("401" in error or "403" in error or "440" in error or "Unauthorized" in error):
                     token_expired = True
                 records.append({
                     "run_id": run_id, "route": route, "airline": "-", "source": src,
@@ -358,6 +359,11 @@ def scrape_and_save(
     scrape_dt = date.today()
     route = f"{origin}-{destination}"
     token = citilink_token or settings.CITILINK_TOKEN
+    
+    if not token:
+        logger.info("Token Citilink kosong, mencoba generate otomatis...")
+        token = get_citilink_token()
+
     dates = generate_dates(start_date, end_date)
     total_dates = len(dates)
 
@@ -403,6 +409,11 @@ def scrape_and_save(
                     all_records.extend(records)
                     total_errors += err_count
                     if tok_expired:
+                        if not citilink_token_expired:
+                            logger.warning("Citilink token expired di tengah proses. Mencoba auto-refresh...")
+                            new_token = get_citilink_token()
+                            if new_token:
+                                token = new_token
                         citilink_token_expired = True
 
                     # Update per-source stats

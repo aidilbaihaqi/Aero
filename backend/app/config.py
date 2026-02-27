@@ -10,8 +10,10 @@ class Settings(BaseSettings):
     # Citilink JWT token (update via .env)
     CITILINK_TOKEN: str = ""
 
-    # Scraping
+    # Scraping & Proxy
     SCRAPE_DELAY: float = 0.5
+    HTTP_PROXY: str | None = None
+    HTTPS_PROXY: str | None = None
     DEFAULT_ORIGIN: str = "BTH"
     DEFAULT_DESTINATION: str = "CGK"
     DEFAULT_END_DATE: str = "2026-03-31"

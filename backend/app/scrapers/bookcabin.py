@@ -1,4 +1,6 @@
 import requests
+from circuitbreaker import circuit
+from app.config import settings
 
 URL_BOOKCABIN = "https://api-ibe.bookcabin.com/flight/v2/search"
 
@@ -10,6 +12,7 @@ TARGET_AIRLINES = {
 }
 
 
+@circuit(failure_threshold=5, recovery_timeout=300)
 def fetch_bookcabin(origin, destination, depart_date):
     """
     Fetch data penerbangan dari API BookCabin.
@@ -35,7 +38,14 @@ def fetch_bookcabin(origin, destination, depart_date):
         "currencyCode": "IDR",
     }
 
-    response = requests.get(URL_BOOKCABIN, params=params, timeout=15)
+    proxies = {}
+    if settings.HTTP_PROXY or settings.HTTPS_PROXY:
+        proxies = {
+            "http": settings.HTTP_PROXY,
+            "https": settings.HTTPS_PROXY,
+        }
+
+    response = requests.get(URL_BOOKCABIN, params=params, timeout=15, proxies=proxies)
     response.raise_for_status()
     return response.json()
 

@@ -1,6 +1,8 @@
 import logging
 import requests
 import re
+from circuitbreaker import circuit
+from app.config import settings
 
 logger = logging.getLogger("aero.scraper")
 
@@ -10,6 +12,7 @@ URL_GARUDA = "https://web-api.garuda-indonesia.com/ga/revamp/v1.0/dapi/airFare"
 TARGET_FARES = ["ECO COMFORT", "ECO AFFORDABLE", "ECO PROMO"]
 
 
+@circuit(failure_threshold=5, recovery_timeout=300)
 def fetch_garuda(origin, destination, depart_date):
     """
     Fetch data penerbangan dari API Garuda Indonesia.
@@ -38,7 +41,14 @@ def fetch_garuda(origin, destination, depart_date):
         }
     }
 
-    response = requests.post(URL_GARUDA, json=payload, timeout=15)
+    proxies = {}
+    if settings.HTTP_PROXY or settings.HTTPS_PROXY:
+        proxies = {
+            "http": settings.HTTP_PROXY,
+            "https": settings.HTTPS_PROXY,
+        }
+
+    response = requests.post(URL_GARUDA, json=payload, timeout=15, proxies=proxies)
 
     # Garuda API sering return 500 untuk tanggal tertentu (no flights / server issue)
     if response.status_code == 500:

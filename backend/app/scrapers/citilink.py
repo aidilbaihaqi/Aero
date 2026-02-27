@@ -1,4 +1,5 @@
 import requests
+from app.config import settings
 
 URL_CITILINK = "https://dotrezapi-akm.prod.citilink.co.id/qg/dotrez/api/nsk/v1/availability/search/ssr"
 
@@ -48,7 +49,14 @@ def fetch_citilink(origin, destination, depart_date, token):
         "taxesAndFees": 2
     }
 
-    response = requests.post(URL_CITILINK, json=payload, headers=headers, timeout=15)
+    proxies = {}
+    if settings.HTTP_PROXY or settings.HTTPS_PROXY:
+        proxies = {
+            "http": settings.HTTP_PROXY,
+            "https": settings.HTTPS_PROXY,
+        }
+
+    response = requests.post(URL_CITILINK, json=payload, headers=headers, timeout=15, proxies=proxies)
     response.raise_for_status()
     return response.json()
 
