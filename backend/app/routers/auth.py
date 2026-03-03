@@ -2,6 +2,8 @@
 auth.py — Authentication endpoints (login, refresh, logout, me).
 """
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,8 @@ from app.services.auth_service import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    blacklist_token,
+    is_token_blacklisted,
 )
 from app.config import settings
 
@@ -72,6 +76,12 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
     if payload is None or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token tidak valid")
 
+    # Check blacklist
+    jti = payload.get("jti")
+    if jti and is_token_blacklisted(db, jti):
+        response.delete_cookie(key="refresh_token", path="/")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token sudah di-revoke")
+
     user_id = payload.get("sub")
     user = db.query(User).filter(User.id == int(user_id)).first()
     if not user or not user.is_active:
@@ -86,8 +96,29 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Clear refresh token cookie."""
+def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Logout: blacklist both access and refresh tokens, clear cookie."""
+    # Blacklist access token (from Authorization header)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header[7:]
+        payload = decode_token(access_token)
+        if payload and payload.get("jti"):
+            exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+            blacklist_token(db, payload["jti"], exp)
+
+    # Blacklist refresh token
+    refresh = request.cookies.get("refresh_token")
+    if refresh:
+        payload = decode_token(refresh)
+        if payload and payload.get("jti"):
+            exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+            blacklist_token(db, payload["jti"], exp)
+
     response.delete_cookie(key="refresh_token", path="/")
     return {"message": "Berhasil logout"}
 
@@ -121,4 +152,3 @@ def change_password(
     db.commit()
 
     return {"message": "Password berhasil diubah"}
-

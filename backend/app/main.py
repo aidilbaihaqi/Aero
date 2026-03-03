@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.routers import flights, auth, stats, settings, notifications, scheduler
 from app.models.user import User  # noqa: ensure users table is created
+from app.models.token_blacklist import TokenBlacklist  # noqa: ensure blacklist table is created
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(level=logging.INFO)
