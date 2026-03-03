@@ -1,17 +1,13 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: aero-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
       POSTGRES_DB: aero
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - aero-network
     restart: always
@@ -22,9 +18,10 @@ services:
       dockerfile: Dockerfile
     container_name: aero-backend
     environment:
-      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/aero
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/aero
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-secret}
-      CITILINK_TOKEN: ${CITILINK_TOKEN}
+      CITILINK_TOKEN: ${CITILINK_TOKEN:-}
+      VPS_IP: ${VPS_IP:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -37,9 +34,9 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://${VPS_IP:-localhost}:8000
     container_name: aero-client
-    environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000
     ports:
       - "3000:3000"
     depends_on:
@@ -54,3 +51,4 @@ networks:
 
 volumes:
   postgres_data:
+
