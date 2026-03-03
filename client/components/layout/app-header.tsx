@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plane, Menu, LogOut, Settings } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Plane, LogOut, Settings } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     DropdownMenu,
@@ -55,11 +54,8 @@ export function AppHeader({ onMobileMenuClick, showSearch = true }: AppHeaderPro
 
     return (
         <header className="sticky top-0 z-30 flex h-24 items-center justify-between px-6 lg:px-10 bg-transparent">
-            {/* Mobile Logo & Toggle (< lg) */}
+            {/* Mobile Logo (< lg) */}
             <div className="flex items-center gap-3 lg:hidden">
-                <Button variant="ghost" size="icon" onClick={onMobileMenuClick} className="mr-2">
-                    <Menu className="h-5 w-5" />
-                </Button>
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white dark:bg-white dark:text-black">
                     <Plane className="h-5 w-5 -rotate-45" />
                 </div>
