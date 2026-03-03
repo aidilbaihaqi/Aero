@@ -48,8 +48,8 @@ def export_triangle_xlsx(
     _ensure_exports_dir()
     route = f"{origin}-{destination}"
 
-    # Query data — JOIN ScrapeRun untuk scrape_date
-    query = db.query(FlightFare, ScrapeRun.scrape_date).join(
+    # Query data — JOIN ScrapeRun untuk scrape_date + run_id + scraped_at
+    query = db.query(FlightFare, ScrapeRun.scrape_date, ScrapeRun.run_id, ScrapeRun.scraped_at).join(
         ScrapeRun, FlightFare.run_id == ScrapeRun.run_id
     ).filter(
         FlightFare.route == route,
@@ -63,25 +63,31 @@ def export_triangle_xlsx(
     if scrape_date_filter:
         query = query.filter(ScrapeRun.scrape_date == scrape_date_filter)
 
-    rows = query.order_by(ScrapeRun.scrape_date, FlightFare.travel_date).all()
+    rows = query.order_by(ScrapeRun.scraped_at, FlightFare.travel_date).all()
 
     if not rows:
         return ""
 
-    # Group by airline -> scrape_date -> travel_date -> cheapest price
-    data: dict[str, dict[date, dict[date, float]]] = {}
+    # Group by airline -> (scrape_date, run_id) -> travel_date -> cheapest price
+    # This keeps multiple runs on the same day as separate rows
+    data: dict[str, dict[tuple[date, str], dict[date, float]]] = {}
     all_travel_dates_set: set[date] = set()
-    for fare, scrape_dt in rows:
+    # Track scraped_at per (scrape_date, run_id) for chronological ordering
+    run_timestamps: dict[tuple[date, str], object] = {}
+
+    for fare, scrape_dt, run_id, scraped_at in rows:
         airline = fare.airline
+        key = (scrape_dt, run_id)
+        run_timestamps[key] = scraped_at
         if airline not in data:
             data[airline] = {}
-        if scrape_dt not in data[airline]:
-            data[airline][scrape_dt] = {}
+        if key not in data[airline]:
+            data[airline][key] = {}
         td = fare.travel_date
         all_travel_dates_set.add(td)
         price = float(fare.basic_fare)
-        if td not in data[airline][scrape_dt] or price < data[airline][scrape_dt][td]:
-            data[airline][scrape_dt][td] = price
+        if td not in data[airline][key] or price < data[airline][key][td]:
+            data[airline][key][td] = price
 
     all_travel_dates = sorted(all_travel_dates_set)
 
@@ -109,7 +115,7 @@ def export_triangle_xlsx(
         cell.fill = header_fill
         cell.border = border
         cell.alignment = Alignment(horizontal="center", vertical="center")
-        ws.column_dimensions["A"].width = 18
+        ws.column_dimensions["A"].width = 22
 
         for col_idx, td in enumerate(all_travel_dates, start=2):
             cell = ws.cell(row=1, column=col_idx, value=td.strftime("%Y-%m-%d"))
@@ -119,16 +125,35 @@ def export_triangle_xlsx(
             cell.alignment = Alignment(horizontal="center")
             ws.column_dimensions[get_column_letter(col_idx)].width = 14
 
-        # Data rows (per scrape_date)
-        for row_idx, sd in enumerate(sorted(data[airline].keys()), start=2):
-            cell = ws.cell(row=row_idx, column=1, value=sd.strftime("%Y-%m-%d"))
+        # Sort keys chronologically using scraped_at timestamp
+        sorted_keys = sorted(data[airline].keys(), key=lambda k: run_timestamps.get(k, k[0]))
+
+        # Count runs per scrape_date to decide labelling
+        from collections import Counter
+        date_counts = Counter(k[0] for k in sorted_keys)
+
+        # Assign sequence numbers per scrape_date
+        date_seq: dict[date, int] = {}
+
+        # Data rows (per scrape run)
+        for row_idx, key in enumerate(sorted_keys, start=2):
+            sd, rid = key
+
+            # Build row label: "2026-03-03 (1)" if multiple runs, plain date if single
+            date_seq[sd] = date_seq.get(sd, 0) + 1
+            if date_counts[sd] > 1:
+                label = f"{sd.strftime('%Y-%m-%d')} ({date_seq[sd]})"
+            else:
+                label = sd.strftime("%Y-%m-%d")
+
+            cell = ws.cell(row=row_idx, column=1, value=label)
             cell.font = Font(bold=True, size=10)
             cell.fill = date_fill
             cell.border = border
 
             for col_idx, td in enumerate(all_travel_dates, start=2):
                 cell = ws.cell(row=row_idx, column=col_idx)
-                price = data[airline][sd].get(td)
+                price = data[airline][key].get(td)
                 if price:
                     cell.value = price
                     cell.number_format = '#,##0'

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
+from app.models.settings import AppSetting
 from app.models.flight import ScrapeRun, FlightFare, FareDailySummary
 from app.models.notification import Notification
 from app.scrapers.garuda import scrape_garuda, URL_GARUDA
@@ -66,6 +67,16 @@ def _cleanup_job(job_id: str, delay: int = 300):
         with _job_lock:
             _job_progress.pop(job_id, None)
     threading.Thread(target=_remove, daemon=True).start()
+
+
+def _get_citilink_token_from_db() -> str:
+    """Read citilink_token from DB (app_settings), fallback to .env config."""
+    db = SessionLocal()
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == "citilink_token").first()
+        return row.value if row else settings.CITILINK_TOKEN
+    finally:
+        db.close()
 
 
 def generate_dates(start: date, end: date) -> list[str]:
@@ -358,7 +369,7 @@ def scrape_and_save(
     run_id = str(uuid.uuid4())
     scrape_dt = date.today()
     route = f"{origin}-{destination}"
-    token = citilink_token or settings.CITILINK_TOKEN
+    token = citilink_token or _get_citilink_token_from_db()
     
     if not token:
         logger.info("Token Citilink kosong, mencoba generate otomatis...")
