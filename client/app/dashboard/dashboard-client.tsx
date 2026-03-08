@@ -37,6 +37,7 @@ import {
     CheckCircle2,
     Loader2,
     AlertCircle,
+    AlertTriangle,
 } from "lucide-react";
 import { PriceTrendChart } from "@/components/price-trend-chart";
 import { toast } from "sonner";
@@ -116,6 +117,7 @@ interface DashboardClientProps {
 export function DashboardClient({ initialStats, initialFares, initialChartData }: DashboardClientProps) {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isScraping, setIsScraping] = useState(false);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [scrapeError, setScrapeError] = useState<string | null>(null);
@@ -248,7 +250,7 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
                     </div>
                 </div>
                 <Button
-                    onClick={handleManualScrape}
+                    onClick={() => setIsConfirmOpen(true)}
                     disabled={isScraping}
                     className="w-full md:w-auto font-bold shadow-lg shadow-neutral-200 hover:shadow-xl transition-all active:scale-95"
                 >
@@ -525,6 +527,43 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
                     </div>
                 </div>
             </div>
+
+            <ScrapeLoadingModal
+                isOpen={isModalOpen}
+                isLoading={isScraping}
+                error={scrapeError}
+                stats={scrapeStats}
+                progress={scrapeProgress}
+                onClose={handleCloseModal}
+            />
+
+            {/* Confirm Scrape Modal */}
+            {isConfirmOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl mx-4">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-3 rounded-xl bg-amber-100">
+                                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            </div>
+                            <h3 className="font-display font-bold text-lg">Konfirmasi Scraping</h3>
+                        </div>
+                        <p className="text-sm text-neutral-600 mb-2">
+                            Pastikan Anda telah memperbarui <span className="font-bold">token Citilink</span> di halaman Pengaturan.
+                        </p>
+                        <p className="text-xs text-neutral-400 mb-6">
+                            Data Citilink akan dilewati jika token kosong atau tidak valid.
+                        </p>
+                        <div className="flex gap-3">
+                            <Button variant="outline" className="flex-1" onClick={() => setIsConfirmOpen(false)}>
+                                Batal
+                            </Button>
+                            <Button className="flex-1" onClick={() => { setIsConfirmOpen(false); handleManualScrape(); }}>
+                                Mulai Scraping
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

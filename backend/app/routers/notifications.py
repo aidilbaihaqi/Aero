@@ -25,7 +25,7 @@ class NotificationOut(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # --- Endpoints ---
@@ -68,6 +68,14 @@ def mark_as_unread(id: int, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 
+@router.delete("/all")
+def clear_all_notifications(db: Session = Depends(get_db)):
+    """Delete all notifications."""
+    db.query(Notification).delete()
+    db.commit()
+    return {"status": "ok"}
+
+
 @router.delete("/{id}")
 def delete_notification(id: int, db: Session = Depends(get_db)):
     """Delete a notification."""
@@ -76,13 +84,5 @@ def delete_notification(id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Notification not found")
     
     db.delete(notif)
-    db.commit()
-    return {"status": "ok"}
-
-
-@router.delete("/all")
-def clear_all_notifications(db: Session = Depends(get_db)):
-    """Delete all notifications."""
-    db.query(Notification).delete()
     db.commit()
     return {"status": "ok"}

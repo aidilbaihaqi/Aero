@@ -372,8 +372,10 @@ def scrape_and_save(
     token = citilink_token or _get_citilink_token_from_db()
     
     if not token:
-        logger.info("Token Citilink kosong, mencoba generate otomatis...")
-        token = get_citilink_token()
+        logger.info("Token Citilink kosong — Citilink scraping akan di-skip untuk semua rute.")
+        citilink_skipped = True
+    else:
+        citilink_skipped = False
 
     dates = generate_dates(start_date, end_date)
     total_dates = len(dates)
@@ -421,10 +423,9 @@ def scrape_and_save(
                     total_errors += err_count
                     if tok_expired:
                         if not citilink_token_expired:
-                            logger.warning("Citilink token expired di tengah proses. Mencoba auto-refresh...")
-                            new_token = get_citilink_token()
-                            if new_token:
-                                token = new_token
+                            logger.warning("Citilink token invalid/expired — skip Citilink untuk rute selanjutnya.")
+                            token = None  # Force skip Citilink on remaining dates
+                            citilink_skipped = True
                         citilink_token_expired = True
 
                     # Update per-source stats
@@ -505,12 +506,12 @@ def scrape_and_save(
             route=route
         ))
 
-    # 8. NOTIFICATION: Citilink token expired
-    if citilink_token_expired:
+    # 8. NOTIFICATION: Citilink token expired / skipped
+    if citilink_token_expired or citilink_skipped:
         db.add(Notification(
             type="warning",
-            title="Citilink Token Expired",
-            message="Token Citilink tidak valid. Silakan update token di halaman Pengaturan.",
+            title="Citilink Token Invalid",
+            message="Token Citilink kosong atau tidak valid. Data Citilink tidak diambil. Silakan update token baru dari website resmi Citilink di halaman Pengaturan.",
         ))
 
     # 9. NOTIFICATION: High error rate alert (> 50%)
