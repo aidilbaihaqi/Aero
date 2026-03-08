@@ -1,5 +1,7 @@
 """
 export_service.py — Export data dari database ke XLSX format segitiga.
+
+Supports multi-route and multi-airline export.
 """
 
 import os
@@ -30,8 +32,8 @@ def _sanitize_sheet_name(name: str) -> str:
 
 def export_triangle_xlsx(
     db: Session,
-    origin: str,
-    destination: str,
+    routes: list[str] | None = None,
+    airlines: list[str] | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
     scrape_date_filter: date | None = None,
@@ -39,22 +41,37 @@ def export_triangle_xlsx(
     """
     Query data dari DB dan export ke XLSX format segitiga.
 
+    Supports multiple routes and airlines via filter lists.
+
     Baris = scrape_date, Kolom = travel_date, Value = harga termurah.
-    1 sheet per airline.
+    1 sheet per route-airline combination.
+
+    Args:
+        routes: list of route codes (e.g. ["BTH-CGK", "BTH-KNO"]), None = semua
+        airlines: list of airline names, None = semua
+        start_date: filter travel_date >= start_date
+        end_date: filter travel_date <= end_date
+        scrape_date_filter: filter scrape_date == this date
 
     Returns:
-        str: absolute path ke file XLSX yang dihasilkan.
+        str: absolute path ke file XLSX yang dihasilkan, "" jika tidak ada data.
     """
     _ensure_exports_dir()
-    route = f"{origin}-{destination}"
 
     # Query data — JOIN ScrapeRun untuk scrape_date + run_id + scraped_at
     query = db.query(FlightFare, ScrapeRun.scrape_date, ScrapeRun.run_id, ScrapeRun.scraped_at).join(
         ScrapeRun, FlightFare.run_id == ScrapeRun.run_id
     ).filter(
-        FlightFare.route == route,
         FlightFare.status_scrape == "SUCCESS",
     )
+
+    # Apply route filter
+    if routes:
+        query = query.filter(FlightFare.route.in_(routes))
+
+    # Apply airline filter
+    if airlines:
+        query = query.filter(FlightFare.airline.in_(airlines))
 
     if start_date:
         query = query.filter(FlightFare.travel_date >= start_date)
@@ -68,26 +85,24 @@ def export_triangle_xlsx(
     if not rows:
         return ""
 
-    # Group by airline -> (scrape_date, run_id) -> travel_date -> cheapest price
-    # This keeps multiple runs on the same day as separate rows
+    # Group by (route, airline) -> (scrape_date, run_id) -> travel_date -> cheapest price
     data: dict[str, dict[tuple[date, str], dict[date, float]]] = {}
     all_travel_dates_set: set[date] = set()
-    # Track scraped_at per (scrape_date, run_id) for chronological ordering
     run_timestamps: dict[tuple[date, str], object] = {}
 
     for fare, scrape_dt, run_id, scraped_at in rows:
-        airline = fare.airline
+        sheet_key = f"{fare.route} {fare.airline}"
         key = (scrape_dt, run_id)
         run_timestamps[key] = scraped_at
-        if airline not in data:
-            data[airline] = {}
-        if key not in data[airline]:
-            data[airline][key] = {}
+        if sheet_key not in data:
+            data[sheet_key] = {}
+        if key not in data[sheet_key]:
+            data[sheet_key][key] = {}
         td = fare.travel_date
         all_travel_dates_set.add(td)
         price = float(fare.basic_fare)
-        if td not in data[airline][key] or price < data[airline][key][td]:
-            data[airline][key][td] = price
+        if td not in data[sheet_key][key] or price < data[sheet_key][key][td]:
+            data[sheet_key][key][td] = price
 
     all_travel_dates = sorted(all_travel_dates_set)
 
@@ -105,8 +120,8 @@ def export_triangle_xlsx(
         top=Side(style="thin"), bottom=Side(style="thin"),
     )
 
-    for airline in sorted(data.keys()):
-        sheet_name = _sanitize_sheet_name(f"{route} {airline}")
+    for sheet_key in sorted(data.keys()):
+        sheet_name = _sanitize_sheet_name(sheet_key)
         ws = wb.create_sheet(sheet_name)
 
         # Header row
@@ -126,7 +141,7 @@ def export_triangle_xlsx(
             ws.column_dimensions[get_column_letter(col_idx)].width = 14
 
         # Sort keys chronologically using scraped_at timestamp
-        sorted_keys = sorted(data[airline].keys(), key=lambda k: run_timestamps.get(k, k[0]))
+        sorted_keys = sorted(data[sheet_key].keys(), key=lambda k: run_timestamps.get(k, k[0]))
 
         # Count runs per scrape_date to decide labelling
         from collections import Counter
@@ -139,7 +154,7 @@ def export_triangle_xlsx(
         for row_idx, key in enumerate(sorted_keys, start=2):
             sd, rid = key
 
-            # Build row label: "2026-03-03 (1)" if multiple runs, plain date if single
+            # Build row label
             date_seq[sd] = date_seq.get(sd, 0) + 1
             if date_counts[sd] > 1:
                 label = f"{sd.strftime('%Y-%m-%d')} ({date_seq[sd]})"
@@ -153,7 +168,7 @@ def export_triangle_xlsx(
 
             for col_idx, td in enumerate(all_travel_dates, start=2):
                 cell = ws.cell(row=row_idx, column=col_idx)
-                price = data[airline][key].get(td)
+                price = data[sheet_key][key].get(td)
                 if price:
                     cell.value = price
                     cell.number_format = '#,##0'
@@ -166,7 +181,8 @@ def export_triangle_xlsx(
     start_str = start_date.strftime("%Y-%m-%d") if start_date else (min(all_travel_dates).strftime("%Y-%m-%d") if all_travel_dates else "ALL")
     end_str = end_date.strftime("%Y-%m-%d") if end_date else (max(all_travel_dates).strftime("%Y-%m-%d") if all_travel_dates else "ALL")
 
-    filename = f"aero_{route}_{start_str}_{end_str}.xlsx"
+    route_label = "_".join(routes) if routes and len(routes) <= 3 else "multi" if routes else "all"
+    filename = f"aero_{route_label}_{start_str}_{end_str}.xlsx"
     filepath = os.path.join(EXPORTS_DIR, filename)
     wb.save(filepath)
 

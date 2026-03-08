@@ -37,7 +37,7 @@ interface AnalyticsClientProps {
 }
 
 export function AnalyticsClient({ initialData }: AnalyticsClientProps) {
-  const { data, isLoading } = useSWR<AnalyticsData>("/api/stats/analytics", fetcher, { fallbackData: initialData });
+  const { data, isLoading } = useSWR<AnalyticsData>("/api/stats/analytics", fetcher, { fallbackData: initialData ?? undefined });
 
   const loading = isLoading && !data;
 

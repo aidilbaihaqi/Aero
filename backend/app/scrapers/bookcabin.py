@@ -101,11 +101,8 @@ def parse_bookcabin(data):
 
         group = flight_groups[0]
 
-        # Filter hanya penerbangan DIRECT (tanpa transit/stop)
-        if group.get("numberOfStops", 0) > 0:
-            continue
-        if len(group.get("flights", [])) > 1:
-            continue
+        # Ambil info dari flight group pertama
+        # (termasuk connecting flights)
 
         origin = group.get("origin", "")
         destination = group.get("destination", "")

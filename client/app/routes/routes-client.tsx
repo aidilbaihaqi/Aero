@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/table";
 import { Plane, Map, Activity, AlertCircle, Loader2, Search } from "lucide-react";
 import api from "@/lib/axios";
-import { flightRoutes } from "@/lib/export-excel";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +39,15 @@ interface FlightFare {
   status_scrape: string;
 }
 
+interface RouteInfo {
+  id: number;
+  origin: string;
+  destination: string;
+  origin_city: string;
+  destination_city: string;
+  is_active: boolean;
+}
+
 const formatPrice = (price: number) => `Rp ${price.toLocaleString("id-ID")}`;
 
 const fetcher = (url: string) => api.get(url).then(res => res.data);
@@ -55,38 +63,61 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // SWR Fetching
+  // Fetch dynamic routes from API
+  const { data: dbRoutes } = useSWR<RouteInfo[]>("/api/routes", fetcher);
+
+  // SWR Fetching - get latest fares
   const { data: rawFares, isLoading } = useSWR<FlightFare[]>("/api/flights/history?limit=500", fetcher, { fallbackData: initialFares });
 
-  // Process mapping
+  // Build cheapest fare per route+airline
   const faresMap: Record<string, FlightFare> = {};
   if (rawFares) {
     for (const fare of rawFares) {
-      const match = flightRoutes.find(
-        (r) => r.route === fare.route && fare.airline.includes(r.airline.split(" ")[0])
-      );
-      const key = match?.sheetName || `${fare.airline}-${fare.route}`;
+      const key = `${fare.route}-${fare.airline}`;
       if (!faresMap[key] || fare.basic_fare < faresMap[key].basic_fare) {
         faresMap[key] = fare;
       }
     }
   }
 
-  // Build display data: merge flightRoutes config with latest prices
-  const routesData = flightRoutes.map((r) => {
-    const fare = faresMap[r.sheetName];
-    return {
-      sheetName: r.sheetName,
-      origin: r.route.split("-")[0],
-      dest: r.route.split("-")[1],
-      airline: r.airline,
-      flight: r.flightNumber,
-      departTime: r.departureTime,
-      arriveTime: r.arrivalTime,
-      lastPrice: fare ? formatPrice(fare.basic_fare) : "—",
-      status: fare ? "Active" : "Inactive",
-    };
-  });
+  // Build display data from DB routes + latest fares
+  const routesData = (() => {
+    // Collect all unique route+airline combinations from fares
+    const fareEntries = Object.values(faresMap).map((fare) => ({
+      key: `${fare.route}-${fare.airline}`,
+      origin: fare.route.split("-")[0],
+      dest: fare.route.split("-")[1],
+      airline: fare.airline,
+      flight: fare.flight_number,
+      departTime: fare.depart_time,
+      arriveTime: fare.arrive_time,
+      lastPrice: formatPrice(fare.basic_fare),
+      status: "Active" as string,
+    }));
+
+    // Also add DB routes that have no fares yet
+    if (dbRoutes) {
+      for (const route of dbRoutes) {
+        const routeCode = `${route.origin}-${route.destination}`;
+        const hasFare = fareEntries.some((e) => e.origin === route.origin && e.dest === route.destination);
+        if (!hasFare) {
+          fareEntries.push({
+            key: `${routeCode}-pending`,
+            origin: route.origin,
+            dest: route.destination,
+            airline: "-",
+            flight: "-",
+            departTime: "-",
+            arriveTime: "-",
+            lastPrice: "—",
+            status: "Inactive" as string,
+          });
+        }
+      }
+    }
+
+    return fareEntries;
+  })();
 
   const activeCount = routesData.filter((r) => r.status === "Active").length;
   const inactiveCount = routesData.filter((r) => r.status === "Inactive").length;
@@ -114,7 +145,7 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
   );
 
   // Get unique airlines for filter
-  const airlines = Array.from(new Set(routesData.map((r) => r.airline)));
+  const airlines = Array.from(new Set(routesData.map((r) => r.airline).filter((a) => a !== "-")));
 
   return (
     <>
@@ -209,9 +240,9 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
         <Table>
           <TableHeader>
             <TableRow className="bg-neutral-50/50 hover:bg-neutral-50/50">
-              <TableHead className="w-[100px]">Kode</TableHead>
               <TableHead>Rute</TableHead>
               <TableHead>Maskapai</TableHead>
+              <TableHead>No Penerbangan</TableHead>
               <TableHead>Jam</TableHead>
               <TableHead>Harga Terakhir</TableHead>
               <TableHead>Status</TableHead>
@@ -233,10 +264,7 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
               </TableRow>
             ) : (
               paginatedRoutes.map((route) => (
-                <TableRow key={route.sheetName} className="group">
-                  <TableCell className="font-mono text-xs text-neutral-500">
-                    {route.sheetName}
-                  </TableCell>
+                <TableRow key={route.key} className="group">
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500">
@@ -248,18 +276,17 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
                           <span className="text-neutral-300 mx-1">→</span>{" "}
                           {route.dest}
                         </div>
-                        <div className="text-[10px] text-neutral-400">
-                          Penerbangan Langsung
-                        </div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="font-medium text-sm">{route.airline}</div>
-                    <div className="text-xs text-neutral-500">{route.flight}</div>
+                  </TableCell>
+                  <TableCell className="text-sm text-neutral-500">
+                    {route.flight}
                   </TableCell>
                   <TableCell className="text-sm text-neutral-600">
-                    {route.departTime} - {route.arriveTime}
+                    {route.departTime !== "-" ? `${route.departTime} - ${route.arriveTime}` : "-"}
                   </TableCell>
                   <TableCell className="font-mono font-bold text-sm">
                     {route.lastPrice}
@@ -300,7 +327,7 @@ export function RoutesClient({ initialFares }: RoutesClientProps) {
                 Sebelumnya
               </Button>
               <div className="flex items-center gap-1">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => i + 1).map((page) => (
                   <Button
                     key={page}
                     variant={currentPage === page ? "default" : "ghost"}

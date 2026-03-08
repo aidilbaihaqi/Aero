@@ -105,8 +105,14 @@ class BulkRoutesRequest(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    origin: str = Field(default="BTH")
-    destination: str = Field(default="CGK")
+    routes: Optional[list[str]] = Field(
+        default=None,
+        description="List kode rute, e.g. ['BTH-CGK', 'BTH-KNO']. Jika kosong, export semua rute."
+    )
+    airlines: Optional[list[str]] = Field(
+        default=None,
+        description="List nama maskapai, e.g. ['GARUDA INDONESIA', 'CITILINK']. Jika kosong, export semua maskapai."
+    )
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     scrape_date: Optional[date] = Field(default=None)

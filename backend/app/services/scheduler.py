@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.database import SessionLocal
 from app.config import settings
 from app.models.settings import AppSetting
+from app.models.route import Route
 from app.services.scraper_service import scrape_and_save
 
 logger = logging.getLogger("aero.scheduler")
@@ -53,8 +54,16 @@ def _get_citilink_token() -> str:
         db.close()
 
 
+def _get_active_routes(db) -> list[dict]:
+    """Read active routes from DB, fallback to DEFAULT_ROUTES."""
+    routes = db.query(Route).filter(Route.is_active == True).all()
+    if routes:
+        return [{"origin": r.origin, "destination": r.destination} for r in routes]
+    return settings.DEFAULT_ROUTES
+
+
 def scheduled_scrape_job():
-    """Job function: scrape all default routes."""
+    """Job function: scrape all active routes from DB."""
     logger.info("=== Scheduled scraping started ===")
     db = SessionLocal()
     try:
@@ -66,7 +75,8 @@ def scheduled_scrape_job():
             logger.info("Past end_date (%s), skipping.", end_dt)
             return
 
-        for route_cfg in settings.DEFAULT_ROUTES:
+        active_routes = _get_active_routes(db)
+        for route_cfg in active_routes:
             origin = route_cfg["origin"]
             destination = route_cfg["destination"]
             logger.info("Scraping %s-%s ...", origin, destination)

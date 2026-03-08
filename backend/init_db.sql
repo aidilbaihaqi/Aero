@@ -90,3 +90,23 @@ CREATE TABLE app_settings (
     value TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+CREATE TABLE routes (
+    id SERIAL PRIMARY KEY,
+    origin VARCHAR(5) NOT NULL,
+    destination VARCHAR(5) NOT NULL,
+    origin_city VARCHAR(50) NOT NULL DEFAULT '',
+    destination_city VARCHAR(50) NOT NULL DEFAULT '',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_route_origin_dest UNIQUE (origin, destination)
+);
+
+-- Seed default routes
+INSERT INTO routes (origin, destination, origin_city, destination_city) VALUES
+    ('BTH', 'CGK', 'Batam', 'Jakarta (Soekarno-Hatta)'),
+    ('BTH', 'KNO', 'Batam', 'Medan'),
+    ('BTH', 'SUB', 'Batam', 'Surabaya'),
+    ('BTH', 'PDG', 'Batam', 'Padang'),
+    ('TNJ', 'CGK', 'Tanjung Pinang', 'Jakarta (Soekarno-Hatta)');

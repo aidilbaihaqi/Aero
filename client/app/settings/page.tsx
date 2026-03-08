@@ -1,13 +1,37 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Settings as SettingsIcon, Bell, Clock, Database, Loader2, Save } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Settings as SettingsIcon, Bell, Clock, Database, Loader2, Save, Plane, Trash2, Plus } from "lucide-react";
 import api from "@/lib/axios";
 import { toast } from "sonner";
+
+interface RouteInfo {
+    id: number;
+    origin: string;
+    destination: string;
+    origin_city: string;
+    destination_city: string;
+    is_active: boolean;
+}
+
+interface AirportInfo {
+    code: string;
+    city: string;
+}
+
+const fetcher = (url: string) => api.get(url).then(res => res.data);
 
 interface SettingsData {
     scrape_delay: number;
@@ -40,6 +64,12 @@ export default function Settings() {
     });
     const [changingPassword, setChangingPassword] = useState(false);
 
+    // Route Management State
+    const { data: routes, mutate: mutateRoutes } = useSWR<RouteInfo[]>("/api/routes", fetcher);
+    const { data: airports } = useSWR<AirportInfo[]>("/api/routes/airports", fetcher);
+    const [newOrigin, setNewOrigin] = useState("");
+    const [newDest, setNewDest] = useState("");
+    const [addingRoute, setAddingRoute] = useState(false);
 
     useEffect(() => {
         fetchSettings();
@@ -287,6 +317,129 @@ export default function Settings() {
                             <span className="text-sm text-neutral-500">Total Scrape Runs</span>
                             <span className="text-sm font-mono font-medium">{formData.db_total_runs.toLocaleString()}</span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Route Management */}
+                <div className="rounded-2xl bg-white p-6 shadow-sm border border-neutral-100 dark:bg-neutral-900 dark:border-neutral-800 lg:col-span-2">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="p-3 rounded-xl bg-neutral-100 dark:bg-neutral-800">
+                            <Plane className="h-5 w-5 text-neutral-700 dark:text-neutral-300" />
+                        </div>
+                        <div>
+                            <h3 className="font-display font-bold">Kelola Rute</h3>
+                            <p className="text-sm text-neutral-500">Tambah atau hapus rute penerbangan yang dipantau</p>
+                        </div>
+                    </div>
+
+                    {/* Add Route Form */}
+                    <div className="flex flex-col md:flex-row gap-3 mb-6">
+                        <div className="flex-1 space-y-1">
+                            <Label>Origin</Label>
+                            <Select value={newOrigin} onValueChange={setNewOrigin}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Pilih bandara asal" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {airports?.map((a) => (
+                                        <SelectItem key={a.code} value={a.code}>
+                                            {a.code} — {a.city}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex-1 space-y-1">
+                            <Label>Destination</Label>
+                            <Select value={newDest} onValueChange={setNewDest}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Pilih bandara tujuan" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {airports?.filter(a => a.code !== newOrigin).map((a) => (
+                                        <SelectItem key={a.code} value={a.code}>
+                                            {a.code} — {a.city}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex items-end">
+                            <Button
+                                disabled={!newOrigin || !newDest || addingRoute}
+                                onClick={async () => {
+                                    setAddingRoute(true);
+                                    try {
+                                        await api.post("/api/routes", { origin: newOrigin, destination: newDest });
+                                        toast.success(`Rute ${newOrigin}-${newDest} berhasil ditambahkan!`);
+                                        mutateRoutes();
+                                        setNewOrigin("");
+                                        setNewDest("");
+                                    } catch (err: any) {
+                                        toast.error(err?.response?.data?.detail || "Gagal menambah rute.");
+                                    } finally {
+                                        setAddingRoute(false);
+                                    }
+                                }}
+                            >
+                                {addingRoute ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Plus className="mr-2 h-4 w-4" />
+                                )}
+                                Tambah Rute
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Routes List */}
+                    <div className="space-y-2">
+                        {!routes ? (
+                            <div className="text-center py-4 text-neutral-400">
+                                <Loader2 className="h-5 w-5 animate-spin mx-auto" />
+                            </div>
+                        ) : routes.length === 0 ? (
+                            <div className="text-center py-4 text-neutral-400 text-sm">
+                                Belum ada rute. Tambahkan rute di atas.
+                            </div>
+                        ) : (
+                            routes.map((route) => (
+                                <div
+                                    key={route.id}
+                                    className="flex items-center justify-between p-3 rounded-xl bg-neutral-50 hover:bg-neutral-100 transition-colors dark:bg-neutral-800/50 dark:hover:bg-neutral-800"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-neutral-700">
+                                            <Plane className="h-4 w-4 text-neutral-500" />
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-bold">
+                                                {route.origin} <span className="text-neutral-300 mx-1">→</span> {route.destination}
+                                            </div>
+                                            <div className="text-xs text-neutral-400">
+                                                {route.origin_city} → {route.destination_city}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                        onClick={async () => {
+                                            try {
+                                                await api.delete(`/api/routes/${route.id}`);
+                                                toast.success(`Rute ${route.origin}-${route.destination} dihapus.`);
+                                                mutateRoutes();
+                                            } catch {
+                                                toast.error("Gagal menghapus rute.");
+                                            }
+                                        }}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </div>

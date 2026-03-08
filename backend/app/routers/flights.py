@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.flight import FlightFare, ScrapeRun, FareDailySummary
+from app.models.route import Route
 from app.schemas.flight import (
     FlightFareOut, ScrapeRunOut, FareDailySummaryOut,
     ScrapeRequest, ScrapeResponse, ExportRequest,
@@ -54,16 +55,20 @@ def bulk_scrape(req: ScrapeRequest, db: Session = Depends(get_db), _user: User =
 
 
 @router.post("/bulk-routes")
-def bulk_routes_scrape(req: BulkRoutesRequest, _user: User = Depends(get_current_user)):
+def bulk_routes_scrape(req: BulkRoutesRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     """Scrape beberapa rute sekaligus (background task).
     
     Langsung return job_id, scraping berjalan di background thread.
     Gunakan GET /api/flights/scrape-progress/{job_id} untuk polling progress.
     """
-    # Resolve routes
+    # Resolve routes: use request routes, else DB routes, else config defaults
     routes = req.routes
     if not routes:
-        routes = [RouteItem(**r) for r in settings.DEFAULT_ROUTES]
+        db_routes = db.query(Route).filter(Route.is_active == True).all()
+        if db_routes:
+            routes = [RouteItem(origin=r.origin, destination=r.destination) for r in db_routes]
+        else:
+            routes = [RouteItem(**r) for r in settings.DEFAULT_ROUTES]
 
     job_id = str(uuid.uuid4())
     routes_dicts = [{"origin": r.origin, "destination": r.destination} for r in routes]
@@ -99,15 +104,39 @@ def get_scrape_progress(job_id: str):
 
 @router.post("/export")
 def export_xlsx(req: ExportRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    """Export data dari DB ke XLSX format segitiga."""
-    filepath = export_triangle_xlsx(db=db, origin=req.origin, destination=req.destination,
-                                     start_date=req.start_date, end_date=req.end_date,
-                                     scrape_date_filter=req.scrape_date)
+    """Export data dari DB ke XLSX format segitiga. Supports multi-route and multi-airline."""
+    filepath = export_triangle_xlsx(
+        db=db,
+        routes=req.routes,
+        airlines=req.airlines,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        scrape_date_filter=req.scrape_date,
+    )
     if not filepath:
         return {"error": "Tidak ada data ditemukan."}
     return FileResponse(path=filepath,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         filename=filepath.split("\\")[-1].split("/")[-1])
+
+
+@router.get("/available-filters")
+def get_available_filters(db: Session = Depends(get_db)):
+    """Return distinct routes and airlines from the database for filter dropdowns."""
+    from sqlalchemy import distinct as sql_distinct
+
+    routes_q = db.query(sql_distinct(FlightFare.route)).filter(
+        FlightFare.status_scrape == "SUCCESS"
+    ).order_by(FlightFare.route).all()
+
+    airlines_q = db.query(sql_distinct(FlightFare.airline)).filter(
+        FlightFare.status_scrape == "SUCCESS"
+    ).order_by(FlightFare.airline).all()
+
+    return {
+        "routes": [r[0] for r in routes_q],
+        "airlines": [a[0] for a in airlines_q],
+    }
 
 
 # =============================================
