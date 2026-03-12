@@ -44,6 +44,18 @@ def _get_end_date() -> date:
         db.close()
 
 
+def _get_start_date() -> date:
+    """Read start_date from DB, fallback to today."""
+    db = SessionLocal()
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == "start_date").first()
+        if row and row.value:
+            return date.fromisoformat(row.value)
+        return date.today()
+    finally:
+        db.close()
+
+
 def _get_citilink_token() -> str:
     """Read citilink_token from DB, fallback to config."""
     db = SessionLocal()
@@ -68,11 +80,15 @@ def scheduled_scrape_job():
     db = SessionLocal()
     try:
         today = date.today()
+        start_dt = _get_start_date()
         end_dt = _get_end_date()
         token = _get_citilink_token()
 
-        if today > end_dt:
-            logger.info("Past end_date (%s), skipping.", end_dt)
+        # Use configured start_date, but never earlier than today
+        effective_start = max(start_dt, today)
+
+        if effective_start > end_dt:
+            logger.info("Start date (%s) is past end_date (%s), skipping.", effective_start, end_dt)
             return
 
         active_routes = _get_active_routes(db)
@@ -85,7 +101,7 @@ def scheduled_scrape_job():
                     db=db,
                     origin=origin,
                     destination=destination,
-                    start_date=today,
+                    start_date=effective_start,
                     end_date=end_dt,
                     citilink_token=token,
                     run_type="SCHEDULED",

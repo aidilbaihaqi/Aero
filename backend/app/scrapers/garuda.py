@@ -48,7 +48,20 @@ def fetch_garuda(origin, destination, depart_date):
             "https": settings.HTTPS_PROXY,
         }
 
-    response = requests.post(URL_GARUDA, json=payload, timeout=15, proxies=proxies)
+    # Garuda web API requires standard browser headers
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    response = requests.post(
+        URL_GARUDA, 
+        json=payload, 
+        headers=headers,
+        timeout=15, 
+        proxies=proxies
+    )
 
     # Garuda API sering return 500 untuk tanggal tertentu (no flights / server issue)
     if response.status_code == 500:

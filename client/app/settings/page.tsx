@@ -36,6 +36,7 @@ const fetcher = (url: string) => api.get(url).then(res => res.data);
 interface SettingsData {
     scrape_delay: number;
     schedule_time: string;
+    start_date: string;
     end_date: string;
     citilink_token: string;
     max_retry: number;
@@ -50,6 +51,7 @@ export default function Settings() {
     const [formData, setFormData] = useState<SettingsData>({
         scrape_delay: 0.5,
         schedule_time: "07:30",
+        start_date: "",
         end_date: "",
         citilink_token: "",
         max_retry: 3,
@@ -97,12 +99,25 @@ export default function Settings() {
     };
 
     const handleSave = async () => {
+        // Client-side date range validation
+        if (formData.start_date && formData.end_date) {
+            const start = new Date(formData.start_date);
+            const end = new Date(formData.end_date);
+            const diffMs = end.getTime() - start.getTime();
+            const diffDays = diffMs / (1000 * 60 * 60 * 24);
+            if (diffDays < 1) {
+                toast.error("Tanggal akhir harus minimal 1 hari setelah tanggal awal.");
+                return;
+            }
+        }
+
         setSaving(true);
         try {
             // Only send editable fields
             const payload = {
                 scrape_delay: formData.scrape_delay,
                 schedule_time: formData.schedule_time,
+                start_date: formData.start_date,
                 end_date: formData.end_date,
                 citilink_token: formData.citilink_token.includes("***") ? undefined : formData.citilink_token, // Don't send masked token
                 max_retry: formData.max_retry,
@@ -112,9 +127,10 @@ export default function Settings() {
             toast.success("Pengaturan berhasil disimpan!");
             // Refresh to get updated masked token if changed
             fetchSettings();
-        } catch (err) {
+        } catch (err: any) {
             console.error("Failed to save settings", err);
-            toast.error("Gagal menyimpan pengaturan.");
+            const detail = err?.response?.data?.detail;
+            toast.error(detail || "Gagal menyimpan pengaturan.");
             setSaving(false);
         }
     };
@@ -278,6 +294,17 @@ export default function Settings() {
                         <div className="space-y-2">
                             <Label>Timezone</Label>
                             <Input type="text" defaultValue="Asia/Jakarta" readOnly className="max-w-[200px] bg-neutral-50 dark:bg-neutral-800" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="start_date">Tanggal Awal Monitoring</Label>
+                            <Input
+                                id="start_date"
+                                type="date"
+                                value={formData.start_date}
+                                onChange={handleChange}
+                                className="max-w-[180px]"
+                            />
+                            <p className="text-xs text-neutral-500">Scraping akan dimulai dari tanggal ini</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="end_date">Tanggal Akhir Monitoring</Label>

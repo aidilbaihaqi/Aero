@@ -103,6 +103,15 @@ CREATE TABLE routes (
     CONSTRAINT uq_route_origin_dest UNIQUE (origin, destination)
 );
 
+-- Seed default settings
+INSERT INTO app_settings (key, value) VALUES
+    ('start_date',    CURRENT_DATE::TEXT),
+    ('end_date',      '2026-03-31'),
+    ('schedule_time', '07:30'),
+    ('scrape_delay',  '0.5'),
+    ('max_retry',     '3')
+ON CONFLICT (key) DO NOTHING;
+
 -- Seed default routes
 INSERT INTO routes (origin, destination, origin_city, destination_city) VALUES
     ('BTH', 'CGK', 'Batam', 'Jakarta (Soekarno-Hatta)'),

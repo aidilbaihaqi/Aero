@@ -1,6 +1,7 @@
 """Settings router — read / update persistent application configuration."""
 
-from fastapi import APIRouter, Depends
+from datetime import date
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class SettingsOut(BaseModel):
     scrape_delay: float
     schedule_time: str
+    start_date: str
     end_date: str
     citilink_token: str   # masked for display
     max_retry: int
@@ -29,6 +31,7 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     scrape_delay: float | None = None
     schedule_time: str | None = None
+    start_date: str | None = None
     end_date: str | None = None
     citilink_token: str | None = None
     max_retry: int | None = None
@@ -58,6 +61,7 @@ def get_settings(db: Session = Depends(get_db)):
     """Return current application settings (merged: DB overrides + env defaults)."""
     scrape_delay = float(_get_setting(db, "scrape_delay", str(app_config.SCRAPE_DELAY)))
     schedule_time = _get_setting(db, "schedule_time", "07:30")
+    start_date = _get_setting(db, "start_date", date.today().isoformat())
     end_date = _get_setting(db, "end_date", app_config.DEFAULT_END_DATE)
     max_retry = int(_get_setting(db, "max_retry", "3"))
 
@@ -72,6 +76,7 @@ def get_settings(db: Session = Depends(get_db)):
     return SettingsOut(
         scrape_delay=scrape_delay,
         schedule_time=schedule_time,
+        start_date=start_date,
         end_date=end_date,
         citilink_token=masked,
         max_retry=max_retry,
@@ -84,6 +89,27 @@ def get_settings(db: Session = Depends(get_db)):
 @router.put("")
 def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)):
     """Update application settings (persisted in DB)."""
+
+    # Validate date range if start_date or end_date is being updated
+    if body.start_date is not None or body.end_date is not None:
+        from datetime import timedelta
+
+        # Resolve effective start and end dates
+        effective_start_str = body.start_date or _get_setting(db, "start_date", date.today().isoformat())
+        effective_end_str = body.end_date or _get_setting(db, "end_date", app_config.DEFAULT_END_DATE)
+
+        try:
+            effective_start = date.fromisoformat(effective_start_str)
+            effective_end = date.fromisoformat(effective_end_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Format tanggal tidak valid. Gunakan format YYYY-MM-DD.")
+
+        if effective_end < effective_start + timedelta(days=1):
+            raise HTTPException(
+                status_code=400,
+                detail="Tanggal akhir harus minimal 1 hari setelah tanggal awal."
+            )
+
     updated = []
     if body.scrape_delay is not None:
         _set_setting(db, "scrape_delay", str(body.scrape_delay))
@@ -91,6 +117,9 @@ def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)):
     if body.schedule_time is not None:
         _set_setting(db, "schedule_time", body.schedule_time)
         updated.append("schedule_time")
+    if body.start_date is not None:
+        _set_setting(db, "start_date", body.start_date)
+        updated.append("start_date")
     if body.end_date is not None:
         _set_setting(db, "end_date", body.end_date)
         updated.append("end_date")

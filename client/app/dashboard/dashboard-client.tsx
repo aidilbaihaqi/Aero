@@ -132,13 +132,32 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
     const loading = isStatsLoading || isFaresLoading || isChartLoading;
 
     // Dynamic SWR polling for scrape progress
-    const { data: pollData } = useSWR<ScrapeProgress>(
+    const { data: pollData, error: pollError } = useSWR<ScrapeProgress>(
         activeJobId ? `/api/flights/scrape-progress/${activeJobId}` : null,
         fetcher,
         { refreshInterval: 2000 }
     );
 
     useEffect(() => {
+        // Handle polling error (e.g. 404 when job expired from memory)
+        if (pollError && activeJobId) {
+            setActiveJobId(null);
+            setIsScraping(false);
+            // If scraping was in progress and job expired, treat as completed
+            setScrapeStats(prev => prev || {
+                total_routes: 0,
+                total_records: 0,
+                success: 0,
+                failed: 0,
+            });
+            setScrapeError("Sesi scraping telah berakhir. Silakan cek hasil di halaman History.");
+            // Revalidate data — the scraping may have completed before the job expired
+            mutateStats();
+            mutateFares();
+            mutateChart();
+            return;
+        }
+
         if (pollData && activeJobId) {
             setScrapeProgress(pollData);
 
@@ -164,7 +183,7 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
                 toast.error("Scraping Gagal");
             }
         }
-    }, [pollData, activeJobId, mutateStats, mutateFares, mutateChart]);
+    }, [pollData, pollError, activeJobId, mutateStats, mutateFares, mutateChart]);
 
     const handleManualScrape = async () => {
         setIsModalOpen(true);
@@ -174,11 +193,13 @@ export function DashboardClient({ initialStats, initialFares, initialChartData }
         setScrapeProgress(null);
 
         try {
-            const today = new Date().toISOString().split("T")[0];
-            const endDate = "2026-03-31";
+            // Fetch start_date and end_date from settings
+            const settingsRes = await api.get("/api/settings");
+            const startDate = settingsRes.data.start_date || new Date().toISOString().split("T")[0];
+            const endDate = settingsRes.data.end_date || "2026-03-31";
 
             const res = await api.post("/api/flights/bulk-routes", {
-                start_date: today,
+                start_date: startDate,
                 end_date: endDate,
                 run_type: "MANUAL",
             });

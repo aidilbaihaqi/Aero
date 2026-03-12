@@ -1,8 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # =============================================
@@ -85,6 +85,12 @@ class ScrapeRequest(BaseModel):
     citilink_token: Optional[str] = Field(default=None)
     run_type: str = Field(default="MANUAL")
 
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.end_date < self.start_date + timedelta(days=1):
+            raise ValueError("Tanggal akhir harus minimal 1 hari setelah tanggal awal.")
+        return self
+
 
 class RouteItem(BaseModel):
     """Satu rute untuk multi-route scraping."""
@@ -102,6 +108,12 @@ class BulkRoutesRequest(BaseModel):
     end_date: date = Field(default=date(2026, 3, 31))
     citilink_token: Optional[str] = Field(default=None)
     run_type: str = Field(default="MANUAL")
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.end_date < self.start_date + timedelta(days=1):
+            raise ValueError("Tanggal akhir harus minimal 1 hari setelah tanggal awal.")
+        return self
 
 
 class ExportRequest(BaseModel):
